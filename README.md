@@ -3,8 +3,6 @@
   <img width="1600" height="400" alt="image" src="https://github.com/user-attachments/assets/1d0e6dce-4520-4d0a-803c-0f9f14692f80" />
 </p>
 
-Este proyecto es un potente Analista de Datos IA que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un Análisis Exploratorio (EDA) generado por IA. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
-
 
 <p align="center">
   <!-- Badges principales -->
@@ -17,8 +15,9 @@ Este proyecto es un potente Analista de Datos IA que permite conversar con tus a
   <img src="https://img.shields.io/badge/Sentence--Transformers-Embeddings-0E83CD?style=flat-square" alt="Sentence Transformers"/>
   <img src="https://img.shields.io/badge/FAISS-Vector%20Search-1E90FF?style=flat-square" alt="FAISS"/>
   <img src="https://img.shields.io/badge/DeepSeek-API-8A2BE2?style=flat-square" alt="DeepSeek"/>
-  <img src="https://img.shields.io/badge/Licencia-MIT-000000?style=flat-square" alt="MIT"/>
 </p>
+
+Este proyecto es un potente Analista de Datos IA que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un Análisis Exploratorio (EDA) generado por IA. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
 
 
 ---
