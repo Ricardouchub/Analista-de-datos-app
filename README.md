@@ -29,53 +29,37 @@
 
 El flujo de trabajo de la aplicación sigue estos pasos:
 
-Carga y Limpieza: El usuario sube los archivos. pandas los lee y aplica una limpieza automática.
-
-Perfilado y EDA: Se identifican los tipos de columnas (numéricas, categóricas, fechas) y se genera un perfil técnico. Inmediatamente, se hace una llamada a la IA para generar el EDA Inteligente.
-
-Chat y Planificación: El usuario hace una pregunta. La pregunta, el historial del chat y el esquema de los datos se envían a la IA, que devuelve un plan de acción en formato JSON.
-
-Ejecución: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
-
-Respuesta y Visualización: El resultado se presenta al usuario como un resumen en texto, una tabla en Markdown o un gráfico generado con Plotly.
+* **Carga y Limpieza**: El usuario sube los archivos. pandas los lee y aplica una limpieza automática.
+* **Perfilado y EDA**: Se identifican los tipos de columnas `numéricas`, `categóricas` y `fechas`. Se genera un perfil técnico. Inmediatamente, se hace una llamada a la IA para generar el EDA Inteligente.
+* **Chat y Planificación**: El usuario hace una pregunta. La pregunta, el historial del chat y el esquema de los datos se envían a la IA, que devuelve un plan de acción en formato JSON.
+* **Ejecución**: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
+* **Respuesta y Visualización**: El resultado se presenta al usuario como un resumen en texto, una tabla en Markdown o un gráfico generado con Plotly.
 
 
 --
 
 ## Features Principales
- Chat-with-Data Universal: Sube uno o más archivos CSV/Excel y empieza a preguntar.
 
-Joins Automáticos: Si subes múltiples archivos, la app detecta claves comunes y sugiere uniones.
-
-Inteligencia Artificial Avanzada: Usa la API de DeepSeek para:
-
-EDA Inteligente: Genera un resumen ejecutivo de tus datos apenas los subes.
-
-Text-to-Plan: Convierte tus preguntas en un plan de ejecución para pandas.
-
-Memoria Conversacional: Recuerda el contexto de tus últimas preguntas.
-
-Búsqueda Semántica de Columnas: Entiende a qué te refieres aunque no uses el nombre exacto de la columna (ej. "ganancias" vs "beneficio_neto") gracias a Sentence-Transformers y FAISS.
-
-Visualización Dinámica: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
-
-Seguridad y Eficiencia: Incluye caché de consultas, límites de uso por sesión y un sistema de cola para gestionar múltiples usuarios.
+* **Chat-with-Data Universal**: Sube uno o más archivos CSV/Excel y empieza a preguntar.
+* **Joins Automáticos**: Si subes múltiples archivos, la app detecta claves comunes y sugiere uniones.
+* **Inteligencia Artificial Avanzada**: Usa la API de DeepSeek para:
+* **EDA Inteligente**: Genera un resumen ejecutivo de tus datos apenas los subes.
+* **Text-to-Plan**: Convierte tus preguntas en un plan de ejecución para pandas.
+* **Memoria Conversacional**: Recuerda el contexto de tus últimas preguntas.
+* **Búsqueda Semántica de Columnas**: Entiende a qué te refieres aunque no uses el nombre exacto de la columna (ej. "ganancias" vs "beneficio_neto") gracias a Sentence-Transformers y FAISS.
+* **Visualización Dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
+* **Seguridad y Eficiencia**: Incluye caché de consultas, límites de uso por sesión y un sistema de cola para gestionar múltiples usuarios.
 
 ---
 
 ## Stack
-Interfaz: Gradio
 
-Backend: Python
-
-Manipulación de Datos: pandas
-
-Visualización: Plotly
-
-IA (LLM): API de DeepSeek Chat
-
-Embeddings de Texto: sentence-transformers
-
-Búsqueda Vectorial: FAISS (Facebook AI Similarity Search)
+**Interfaz**: Gradio
+**Backend**: Python
+**Manipulación de Datos**: pandas
+**Visualización**: Plotly
+**IA (LLM)**: DeepSeek
+**Embeddings de Texto**: sentence-transformers
+**Búsqueda Vectorial**: FAISS (Facebook AI Similarity Search)
 
 --
