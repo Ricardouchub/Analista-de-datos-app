@@ -63,3 +63,15 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 **Búsqueda Vectorial**: FAISS (Facebook AI Similarity Search)
 
 --
+
+## Screenshots
+
+<img width="2545" height="1285" alt="image" src="https://github.com/user-attachments/assets/80410f9b-5832-42b0-a1a0-9b32a1236ab7" />
+
+---
+
+## Autor
+
+**Ricardo Urdaneta**
+
+**[Linkedin](https://www.linkedin.com/in/ricardourdanetacastro)**
