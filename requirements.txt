@@ -1,0 +1,14 @@
+# requirements.txt
+pandas>=1.5.0
+numpy
+plotly
+gradio>=4.0.0
+sentence-transformers
+faiss-cpu
+rapidfuzz
+scikit-learn
+pyarrow
+openpyxl
+openai>=1.0.0
+python-dotenv
+tabulate
