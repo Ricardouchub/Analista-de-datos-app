@@ -68,7 +68,11 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 
 ## Screenshots
 
-<img width="2545" height="1285" alt="image" src="https://github.com/user-attachments/assets/80410f9b-5832-42b0-a1a0-9b32a1236ab7" />
+<img width="1595" height="748" alt="image" src="https://github.com/user-attachments/assets/3e6ddf20-1740-44cb-ad0a-2481e97cf221" />
+
+
+<img width="2527" height="1263" alt="image" src="https://github.com/user-attachments/assets/df859edf-21d0-4e18-a79f-2b073feea653" />
+
 
 ---
 
