@@ -32,8 +32,7 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 * **Ejecución**: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
 * **Respuesta y Visualización**: El resultado se presenta al usuario como un resumen en texto, una tabla en Markdown o un gráfico generado con Plotly.
 
-
---
+---
 
 ## Features Principales
 
@@ -52,14 +51,20 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 ## Stack
 
 **Interfaz**: Gradio
+
 **Backend**: Python
+
 **Manipulación de Datos**: pandas
+
 **Visualización**: Plotly
+
 **IA (LLM)**: DeepSeek
+
 **Embeddings de Texto**: sentence-transformers
+
 **Búsqueda Vectorial**: FAISS (Facebook AI Similarity Search)
 
---
+---
 
 ## Screenshots
 
