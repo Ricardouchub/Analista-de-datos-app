@@ -248,24 +248,32 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
 # ==============================================================================
 # 2. LÓGICA DE LA INTERFAZ (FLUJOS Y FUNCIONES)
 # ==============================================================================
-def build_dataset_flow(files, progress=gr.Progress()):
+def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
+    """Flujo completo para cargar, validar y analizar los archivos con feedback de progreso."""
     MAX_FILE_SIZE_MB, MAX_TOTAL_ROWS = 25, 200000
-    if not files: return None, "Sube al menos un archivo.", "", "", None, None, None, gr.update(visible=False), gr.update(selected=0)
-    progress(0, desc="Iniciando...")
+    
     try:
+        progress(0, desc="Iniciando validación de archivos...")
+        if not files:
+            raise ValueError("Por favor, sube al menos un archivo.")
+
         for f in files:
             if os.path.getsize(f.name) / (1024*1024) > MAX_FILE_SIZE_MB:
                 raise ValueError(f"'{os.path.basename(f.name)}' excede el límite de {MAX_FILE_SIZE_MB} MB.")
         
         dm = DataManager([f.name for f in files])
-        progress(0.2, desc="Cargando y procesando..."); dm.load_and_process_files()
+        
+        # Simulación de progreso a través de las etapas
+        progress(0.2, desc="Cargando y procesando archivos...")
+        dm.load_and_process_files() # Esta función interna ya tiene _log
         
         if len(dm.final_df) > MAX_TOTAL_ROWS:
             raise ValueError(f"El dataset excede el límite de {MAX_TOTAL_ROWS} filas.")
         
-        progress(0.6, desc="Generando EDA técnico..."); eda_results = dm.run_eda()
+        progress(0.6, desc="Generando EDA técnico (perfil y correlaciones)...")
+        eda_results = dm.run_eda()
         
-        # ### CAMBIO ### - Llamada al EDA Inteligente
+        progress(0.8, desc="Generando análisis con IA (esto puede tardar unos segundos)...")
         processor = QueryProcessor(dm)
         intelligent_eda = processor.generate_intelligent_eda()
         
@@ -274,12 +282,16 @@ def build_dataset_flow(files, progress=gr.Progress()):
         
         session_state = SessionState(data_manager=dm)
         
-        # ### CAMBIO ### - Se añade 'intelligent_eda' a los outputs
+        progress(1, desc="¡Análisis completado!")
+        
         return (session_state, "Análisis completado.", summary_text, "\n".join(dm.system_log),
                 dm.final_df.head(10), eda_results.get("profile_df", pd.DataFrame()), eda_results.get("corr_fig"),
                 intelligent_eda, gr.update(visible=True), gr.update(selected=1))
+
     except Exception as e:
-        return None, f"❌ Error: {e}", "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0)
+        # En caso de error, oculta los componentes de salida y muestra el error
+        error_message = f"❌ Error: {e}"
+        return None, error_message, "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0)
 
 def chat_response_flow(message: str, history: List[Dict], session_state: SessionState):
     MAX_QUERIES = 20
@@ -322,7 +334,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA") as demo:
         with gr.TabItem("1. Cargar Datos", id=0):
             gr.Markdown("## Paso 1: Sube tus datos para comenzar el análisis")
             files = gr.File(label="Archivos soportados: CSV, Excel (.xlsx, .xls)", file_count="multiple", file_types=[".csv", ".xlsx", ".xls"])
-            build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
+            build_btn = gr.Button("Construir y Analizar", variant="primary")
             status_markdown = gr.Markdown("**Estado:** Esperando archivos...")
             summary_markdown = gr.Markdown()
         
