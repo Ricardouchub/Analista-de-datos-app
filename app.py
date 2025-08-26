@@ -324,14 +324,38 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
     yield response
 
 # ==============================================================================
-# 3. CONSTRUCCIÓN DE LA INTERFAZ (UI MODERNA)
+# 3. CONSTRUCCIÓN DE LA INTERFAZ (CENTRADA + RESIZE TAB 2)
 # ==============================================================================
 custom_css = """
 /* Fuente e higiene visual */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root { --radius-lg: 14px; }
-.gradio-container { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; }
-blockquote { border-left: 4px solid #e5e7eb; margin: 0.6rem 0; padding-left: 0.8rem; color: #374151; }
+
+/* Quitar gris en bloques/labels/headers */
+.gradio-container, :root {
+  --block-background-fill: transparent !important;
+  --block-border-color: transparent !important;
+  --block-label-background-fill: transparent !important;
+  --block-title-background-fill: transparent !important;
+}
+.gradio-container .gr-markdown,
+.gradio-container .gr-markdown *, 
+.gradio-container .label, 
+.gradio-container .label-wrap,
+.gradio-container .panel-header,
+.gradio-container .block .header,
+.gradio-container .form { 
+  background: transparent !important; 
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Centro de la app */
+#app-center { 
+  max-width: 1100px; 
+  margin: 0 auto !important; 
+  padding: 8px 16px 24px;
+}
 
 /* Header */
 .app-header { 
@@ -349,78 +373,126 @@ blockquote { border-left: 4px solid #e5e7eb; margin: 0.6rem 0; padding-left: 0.8
 }
 .dark .card { background: #0b1220; border-color: #1f2937; }
 
-/* Pequeños ajustes */
+/* Botones */
 .gr-button { border-radius: 10px !important; }
+
+/* Layout redimensionable (solo Tab 2) */
+#layout {
+  display: grid;
+  grid-template-columns: var(--left, 1fr) 8px var(--right, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+#panel-left, #panel-right { min-width: 260px; overflow: auto; }
+#dragbar {
+  width: 8px; cursor: col-resize; border-radius: 6px;
+  background: linear-gradient(180deg, #e2e8f0, #cbd5e1);
+}
+.dark #dragbar { background: linear-gradient(180deg, #1f2937, #111827); }
+
+/* Landing centrado aún más estrecho */
+#center-landing { max-width: 900px; margin: 0 auto; }
+"""
+
+# Script para hacer draggable el separador (Tab 2)
+resize_script = """
+<script>
+(function(){
+  const root = document.getElementById('layout');
+  const bar  = document.getElementById('dragbar');
+  if(!root || !bar) return;
+  root.style.setProperty('--left', '1fr');
+  root.style.setProperty('--right','1fr');
+  let dragging = false;
+  bar.addEventListener('mousedown', ()=> dragging = true);
+  window.addEventListener('mouseup', ()=> dragging = false);
+  window.addEventListener('mousemove', (e)=>{
+    if(!dragging) return;
+    const rect = root.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+    const min = 240;
+    x = Math.max(min, Math.min(rect.width - min, x));
+    const left = x / rect.width;
+    const right = 1 - left;
+    root.style.gridTemplateColumns = (left*100) + '% 8px ' + (right*100) + '%';
+  });
+})();
+</script>
 """
 
 with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_css) as demo:
-    # Header moderno
-    gr.HTML(
-        """
-        <div class="app-header">
-          <h1>🤖 Analista de Datos IA</h1>
-          <p>Sube tus datos • Haz preguntas en lenguaje natural • Obtén análisis claros y visuales</p>
-        </div>
-        """
-    )
+    with gr.Column(elem_id="app-center"):
+        # Header moderno (centrado por el wrapper)
+        gr.HTML(
+            """
+            <div class="app-header">
+              <h1>🤖 Analista de Datos IA</h1>
+              <p>Sube tus datos • Haz preguntas en lenguaje natural • Obtén análisis claros y visuales</p>
+            </div>
+            """
+        )
 
-    app_state = gr.State()
+        app_state = gr.State()
 
-    with gr.Tabs() as tabs:
-        # --- Tab 1: Cargar Datos ---
-        with gr.TabItem("1. Cargar Datos", id=0):
-            with gr.Row():
-                with gr.Column(scale=6):
-                    with gr.Group(elem_classes=["card"]):
-                        gr.Markdown("### 📥 Subir archivos")
-                        files = gr.File(
-                            label="Archivos soportados: CSV, Excel (.xlsx, .xls)",
-                            file_count="multiple",
-                            file_types=[".csv", ".xlsx", ".xls"]
-                        )
-                        build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
-                with gr.Column(scale=6):
+        with gr.Tabs() as tabs:
+            # --- Tab 1: Cargar Datos (centrado) ---
+            with gr.TabItem("1. Cargar Datos", id=0):
+                with gr.Column(elem_id="center-landing"):
                     with gr.Group(elem_classes=["card"]):
                         gr.Markdown("### 📊 Estado del pipeline")
                         status_markdown = gr.Markdown("**Estado:** Esperando archivos…")
                         summary_markdown = gr.Markdown()
-
-        # --- Tab 2: Chat + Panel de Datos ---
-        with gr.TabItem("2. Chat Interactivo", id=1):
-            with gr.Row():
-                # Columna izquierda: Chat
-                with gr.Column(scale=7):
-                    with gr.Group(elem_classes=["card"]):
-                        gr.Markdown("### 💬 Conversa con tus datos")
-                        examples = [
-                            "Top 5 productos por suma de ventas",
-                            "Evolución del promedio de ingresos por mes",
-                            "Filtrar país = Chile y monto entre 1000 y 2000",
-                            "Comparar precio promedio por región en el tiempo"
-                        ]
-                        gr.ChatInterface(
-                            fn=chat_response_flow,
-                            additional_inputs=[app_state],
-                            title=None,
-                            description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
-                            type="messages",
+                        gr.Markdown("---")
+                        gr.Markdown("### 📥 Subir archivos")
+                        files = gr.File(
+                            show_label=False,
+                            file_count="multiple",
+                            file_types=[".csv", ".xlsx", ".xls"]
                         )
+                        build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
 
-                # Columna derecha: Panel de análisis (colapsable)
-                with gr.Column(scale=5):
-                    with gr.Group(elem_classes=["card"]):
-                        with gr.Accordion("📈 Panel de Datos y Análisis", open=True):
-                            gr.Markdown("#### Análisis Inteligente por IA")
-                            intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis…")
-                            gr.Markdown("---")
-                            gr.Markdown("#### Vista Previa de los Datos")
-                            preview_df_output = gr.Dataframe(interactive=False, wrap=True, **{DF_H: 260})
-                            with gr.Tabs():
-                                with gr.TabItem("EDA Técnico"):
-                                    eda_profile_df = gr.Dataframe(label="Perfil de Columnas", interactive=False, **{DF_H: 220})
-                                    corr_plot = gr.Plot(label="Matriz de Correlación")
-                                with gr.TabItem("Log del Sistema"):
-                                    system_log_output = gr.Code(label="Registro de operaciones", interactive=False)
+            # --- Tab 2: Panel de Datos (IZQ) + Chat (DER) con resizer ---
+            with gr.TabItem("2. Chat Interactivo", id=1):
+                with gr.Row(elem_id="layout"):
+                    # IZQUIERDA: Panel de análisis de datos
+                    with gr.Column(scale=5, elem_id="panel-left"):
+                        with gr.Group(elem_classes=["card"]):
+                            with gr.Accordion("📈 Panel de Datos y Análisis", open=True):
+                                gr.Markdown("#### Análisis Inteligente por IA")
+                                intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis…")
+                                gr.Markdown("---")
+                                gr.Markdown("#### Vista Previa de los Datos")
+                                preview_df_output = gr.Dataframe(interactive=False, wrap=True, **{DF_H: 260}, show_label=False)
+                                with gr.Tabs():
+                                    with gr.TabItem("EDA Técnico"):
+                                        gr.Markdown("**Perfil de Columnas**")
+                                        eda_profile_df = gr.Dataframe(interactive=False, **{DF_H: 220}, show_label=False)
+                                        gr.Markdown("**Matriz de Correlación**")
+                                        corr_plot = gr.Plot(label=None, show_label=False)
+                                    with gr.TabItem("Log del Sistema"):
+                                        gr.Markdown("**Registro de operaciones**")
+                                        system_log_output = gr.Code(show_label=False, interactive=False)
+                    # Separador draggable
+                    gr.HTML("<div id='dragbar'></div>", elem_id="dragbar")
+                    # DERECHA: Chat
+                    with gr.Column(scale=7, elem_id="panel-right"):
+                        with gr.Group(elem_classes=["card"]):
+                            gr.Markdown("### 💬 Conversa con tus datos")
+                            examples = [
+                                "Top 5 productos por suma de ventas",
+                                "Evolución del promedio de ingresos por mes",
+                                "Filtrar país = Chile y monto entre 1000 y 2000",
+                                "Comparar precio promedio por región en el tiempo"
+                            ]
+                            gr.ChatInterface(
+                                fn=chat_response_flow,
+                                additional_inputs=[app_state],
+                                title=None,
+                                description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
+                                type="messages",
+                            )
+        # Script de resize (Tab 2)
+        gr.HTML(resize_script)
 
     # Acción del botón (mapeo de outputs conservado)
     build_btn.click(
@@ -443,7 +515,6 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
 if __name__ == "__main__":
     try:
         ResourceManager.get_deepseek_client()
-        # Para despliegue en HF Spaces, la autenticación se maneja en los settings del Space.
         demo.queue().launch()
     except ValueError as e:
         print(f"\n\nERROR DE INICIO: {e}")
