@@ -3,14 +3,12 @@
   <img width="1600" height="400" alt="image" src="https://github.com/user-attachments/assets/1d0e6dce-4520-4d0a-803c-0f9f14692f80" />
 </p>
 
-<h1 align="center">🤖 Analista de Datos IA</h1>
-<p align="center">
-  Universal Chat-with-Data • Joins automáticos (exact/fuzzy) • EDA inteligente
-</p>
+Este proyecto es un potente Analista de Datos IA que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un Análisis Exploratorio (EDA) generado por IA. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
+
 
 <p align="center">
   <!-- Badges principales -->
-  <img src="https://img.shields.io/badge/Estado-Activo-2ECC71?style=flat-square" alt="Estado"/>
+  <img src="https://img.shields.io/badge/Estado-Completado-2ECC71?style=flat-square" alt="Estado"/>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/Gradio-5.43.1-F58025?style=flat-square&logo=gradio&logoColor=white" alt="Gradio"/>
   <img src="https://img.shields.io/badge/Hugging%20Face-Spaces-FFD21E?style=flat-square&logo=huggingface&logoColor=black" alt="HF Spaces"/>
