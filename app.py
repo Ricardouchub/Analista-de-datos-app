@@ -1,4 +1,4 @@
-# app_enterprise.py — v5.1 (HF Spaces Stable)
+# analista_de_datos.py — v6.0 (Final Polished)
 # Autor Original: Ricardo Urdaneta (https://github.com/Ricardouchub)
 # Mejoras por: Gemini (Google)
 
@@ -30,7 +30,7 @@ class SessionState:
     data_manager: Optional['DataManager'] = None
     query_count: int = 0
     query_cache: Dict[str, Any] = field(default_factory=dict)
-
+    
     def increment_query_count(self):
         self.query_count += 1
 
@@ -141,14 +141,14 @@ class DataManager:
 
     def run_eda(self) -> Dict[str, Any]:
         if self.final_df is None: return {}
-        self._log("Generando reporte EDA...")
+        self._log("Generando reporte EDA técnico...")
         miss = self.final_df.isna().mean().mul(100).round(2).rename("missing_pct")
         profile_df = pd.concat([self.final_df.dtypes.astype(str).rename("dtype"), miss, self.final_df.nunique().rename("unique_cnt")], axis=1).reset_index()
         corr_fig = None
         if len(self.profile.numeric) > 1:
             corr = self.final_df[self.profile.numeric].corr(numeric_only=True)
             corr_fig = px.imshow(corr, title="Matriz de Correlación", color_continuous_scale="RdBu", zmin=-1, zmax=1)
-        self._log("✅ Reporte EDA generado.")
+        self._log("✅ Reporte EDA técnico generado.")
         return {"profile_df": profile_df, "corr_fig": corr_fig}
 
 class QueryProcessor:
@@ -162,6 +162,30 @@ class QueryProcessor:
             return completion.choices[0].message.content
         except Exception as e:
             return f'{{"intent": "error", "message": "Error en la API: {e}"}}'
+
+    def generate_intelligent_eda(self) -> str:
+        self.dm._log("Generando EDA inteligente con IA...")
+        profile_info = f"Columnas numéricas: {self.dm.profile.numeric}\nColumnas categóricas: {self.dm.profile.categorical}\nColumnas de fecha: {self.dm.profile.datetime}"
+        preview_table = self.dm.final_df.head(3).to_markdown()
+
+        system_message = {"role": "system", "content": "Eres un analista de datos senior. Tu tarea es realizar un análisis exploratorio inicial (EDA) conciso y útil basado en el esquema y una vista previa de los datos. Responde en formato Markdown."}
+        user_message_content = f"""
+Aquí está el perfil de un nuevo dataset:
+{profile_info}
+
+Y una pequeña vista previa:
+{preview_table}
+
+Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
+1.  **Descripción General**: ¿De qué parecen tratar los datos?
+2.  **Columnas Clave**: ¿Cuáles parecen ser las columnas más importantes para el análisis?
+3.  **Sugerencias de Análisis**: Basado en las columnas, ¿qué 2 o 3 preguntas interesantes podrías hacerle a estos datos?
+4.  **Calidad de Datos**: ¿Observas algo evidente (ej. valores nulos en la vista previa) que merezca ser mencionado?
+"""
+        user_message = {"role": "user", "content": user_message_content}
+        eda_analysis = self._get_api_completion([system_message, user_message], temperature=0.5)
+        self.dm._log("✅ EDA inteligente generado.")
+        return eda_analysis
 
     def _generate_dynamic_examples(self) -> str:
         num = self.dm.profile.numeric[0] if self.dm.profile.numeric else "valor"
@@ -226,7 +250,7 @@ class QueryProcessor:
 # ==============================================================================
 def build_dataset_flow(files, progress=gr.Progress()):
     MAX_FILE_SIZE_MB, MAX_TOTAL_ROWS = 25, 200000
-    if not files: return None, "Sube al menos un archivo.", "", "", None, gr.update(visible=False), gr.update(selected=0)
+    if not files: return None, "Sube al menos un archivo.", "", "", None, None, None, gr.update(visible=False), gr.update(selected=0)
     progress(0, desc="Iniciando...")
     try:
         for f in files:
@@ -239,18 +263,23 @@ def build_dataset_flow(files, progress=gr.Progress()):
         if len(dm.final_df) > MAX_TOTAL_ROWS:
             raise ValueError(f"El dataset excede el límite de {MAX_TOTAL_ROWS} filas.")
         
-        progress(0.8, desc="Generando EDA..."); eda_results = dm.run_eda()
+        progress(0.6, desc="Generando EDA técnico..."); eda_results = dm.run_eda()
+        
+        # ### CAMBIO ### - Llamada al EDA Inteligente
+        processor = QueryProcessor(dm)
+        intelligent_eda = processor.generate_intelligent_eda()
         
         rows, cols = dm.final_df.shape
         summary_text = f"✅ **Dataset listo:** Tabla de **{rows} filas** y **{cols} columnas**."
         
         session_state = SessionState(data_manager=dm)
         
+        # ### CAMBIO ### - Se añade 'intelligent_eda' a los outputs
         return (session_state, "Análisis completado.", summary_text, "\n".join(dm.system_log),
-                eda_results.get("profile_df", pd.DataFrame()), eda_results.get("corr_fig"),
-                gr.update(visible=True), gr.update(selected=1))
+                dm.final_df.head(10), eda_results.get("profile_df", pd.DataFrame()), eda_results.get("corr_fig"),
+                intelligent_eda, gr.update(visible=True), gr.update(selected=1))
     except Exception as e:
-        return None, f"❌ Error: {e}", "", str(e), None, None, gr.update(visible=False), gr.update(selected=0)
+        return None, f"❌ Error: {e}", "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0)
 
 def chat_response_flow(message: str, history: List[Dict], session_state: SessionState):
     MAX_QUERIES = 20
@@ -265,7 +294,7 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
 
     processor = QueryProcessor(session_state.data_manager)
     
-    plan = processor.parse_question_to_plan(message, history)
+    plan = processor.parse_question_to_plan(message, history) # Se debe pasar el historial aquí
     if plan.get("intent") == "error":
         yield plan.get("message"); return
         
@@ -276,57 +305,64 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
     
     response = summary
     if not result_df.empty:
-        # Convierte el DataFrame a una tabla Markdown y la añade a la respuesta
         table_markdown = result_df.head(10).to_markdown(index=False)
         response += f"\n\n**Vista Previa de los Resultados:**\n{table_markdown}"
-
+    
     session_state.query_cache[message] = response
-    yield response # Ahora 'response' es siempre una única cadena de texto
+    yield response
 
 # ==============================================================================
 # 3. CONSTRUCCIÓN DE LA INTERFAZ
 # ==============================================================================
-with gr.Blocks(theme=gr.themes.Soft(), title="Chat-with-Data Enterprise") as demo:
-    gr.Markdown("# 🚀 Chat-with-Data v5.1 (Stable)\n### Una aplicación para analizar datos mediante lenguaje natural.")
+with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA") as demo:
+    gr.Markdown("# 🤖 Analista de Datos IA\n### Sube tus datos → Haz preguntas en lenguaje natural → Obtén análisis al instante.")
     app_state = gr.State()
 
     with gr.Tabs() as tabs:
-        with gr.TabItem("1. Cargar y Analizar Datos", id=0):
-            with gr.Row():
-                with gr.Column(scale=1):
-                    files = gr.File(label="Sube tus archivos (CSV, Excel)", file_count="multiple", file_types=[".csv", ".xlsx", ".xls"])
-                    build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
-                with gr.Column(scale=2):
-                    status_markdown = gr.Markdown("**Estado:** Esperando archivos...")
-                    summary_markdown = gr.Markdown()
-            with gr.Accordion("Log del Sistema y Reporte EDA", open=False):
-                system_log_output = gr.Code(label="Log del Sistema", interactive=False)
-                eda_tabs = gr.Tabs(visible=False)
-                with eda_tabs:
-                    with gr.TabItem("Perfil de Columnas"): eda_profile_df = gr.Dataframe()
-                    with gr.TabItem("Matriz de Correlación"): corr_plot = gr.Plot()
+        with gr.TabItem("1. Cargar Datos", id=0):
+            gr.Markdown("## Paso 1: Sube tus datos para comenzar el análisis")
+            files = gr.File(label="Archivos soportados: CSV, Excel (.xlsx, .xls)", file_count="multiple", file_types=[".csv", ".xlsx", ".xls"])
+            build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
+            status_markdown = gr.Markdown("**Estado:** Esperando archivos...")
+            summary_markdown = gr.Markdown()
         
         with gr.TabItem("2. Chat Interactivo", id=1):
+            # ### CAMBIO ### - Inicio: El panel de análisis se mueve aquí
+            with gr.Accordion("Panel de Datos y Análisis (clic para expandir/minimizar)", open=True):
+                gr.Markdown("### Análisis Inteligente por IA")
+                intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis...")
+                gr.Markdown("---")
+                gr.Markdown("### Vista Previa de los Datos")
+                preview_df_output = gr.Dataframe(interactive=False, wrap=True)
+                with gr.Tabs():
+                    with gr.TabItem("EDA Técnico"):
+                        eda_profile_df = gr.Dataframe(label="Perfil de Columnas")
+                        corr_plot = gr.Plot(label="Matriz de Correlación")
+                    with gr.TabItem("Log del Sistema"):
+                        system_log_output = gr.Code(label="Registro de operaciones", interactive=False)
+            # ### CAMBIO ### - Fin: El panel de análisis se mueve aquí
+            
             gr.ChatInterface(
                 fn=chat_response_flow,
                 additional_inputs=[app_state],
-                title="Asistente de Análisis de Datos",
-                description="Haz una pregunta sobre los datos que subiste. El asistente recordará la conversación.",
-                type="messages" # Parámetro clave para el formato moderno
+                title="Asistente de Análisis",
+                description="Haz preguntas como '¿Cuál es el top 5 de productos por ventas?' o 'Muéstrame la evolución de los ingresos'.",
+                type="messages"
             )
 
+    # ### CAMBIO ### - El .click ahora actualiza los componentes en la segunda pestaña
     build_btn.click(
         fn=build_dataset_flow,
         inputs=[files],
         outputs=[app_state, status_markdown, summary_markdown, system_log_output,
-                 eda_profile_df, corr_plot, eda_tabs, tabs]
+                 preview_df_output, eda_profile_df, corr_plot,
+                 intelligent_eda_output, tabs, tabs] # Se actualiza el 'tabs' para forzar el cambio
     )
 
 if __name__ == "__main__":
     try:
         ResourceManager.get_deepseek_client()
         # Para despliegue en HF Spaces, la autenticación se maneja en los settings del Space.
-        # Quitamos 'auth' para evitar conflictos.
         demo.queue().launch()
     except ValueError as e:
         print(f"\n\nERROR DE INICIO: {e}")
