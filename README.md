@@ -22,27 +22,60 @@
   <img src="https://img.shields.io/badge/Licencia-MIT-000000?style=flat-square" alt="MIT"/>
 </p>
 
-<p align="center">
-  <!-- Reemplaza la URL del Space cuando lo publiques -->
-  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos-ia">
-    <img src="https://img.shields.io/badge/Abrir_en-HF_Spaces-ffcc00?style=for-the-badge&logo=huggingface&logoColor=black" alt="Open in Spaces">
-  </a>
-</p>
 
 ---
 
-## ✨ ¿Qué hace?
-- **Chat-with-Data universal**: sube **CSV/Excel**, pregunta en lenguaje natural y obtén respuestas con **tablas y gráficos**.
-- **Joins automáticos**: sugiere y aplica uniones **exactas y fuzzy** entre múltiples archivos (detección de claves por similitud y cardinalidad).
-- **EDA inteligente**: panel automático con **perfil de columnas**, **missingness**, **correlaciones** y un **resumen generado con IA**.
-- **Caché ligera** y **límite de consultas** por sesión.
+## Cómo Funciona 
+
+El flujo de trabajo de la aplicación sigue estos pasos:
+
+Carga y Limpieza: El usuario sube los archivos. pandas los lee y aplica una limpieza automática.
+
+Perfilado y EDA: Se identifican los tipos de columnas (numéricas, categóricas, fechas) y se genera un perfil técnico. Inmediatamente, se hace una llamada a la IA para generar el EDA Inteligente.
+
+Chat y Planificación: El usuario hace una pregunta. La pregunta, el historial del chat y el esquema de los datos se envían a la IA, que devuelve un plan de acción en formato JSON.
+
+Ejecución: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
+
+Respuesta y Visualización: El resultado se presenta al usuario como un resumen en texto, una tabla en Markdown o un gráfico generado con Plotly.
+
+
+--
+
+## Features Principales
+ Chat-with-Data Universal: Sube uno o más archivos CSV/Excel y empieza a preguntar.
+
+Joins Automáticos: Si subes múltiples archivos, la app detecta claves comunes y sugiere uniones.
+
+Inteligencia Artificial Avanzada: Usa la API de DeepSeek para:
+
+EDA Inteligente: Genera un resumen ejecutivo de tus datos apenas los subes.
+
+Text-to-Plan: Convierte tus preguntas en un plan de ejecución para pandas.
+
+Memoria Conversacional: Recuerda el contexto de tus últimas preguntas.
+
+Búsqueda Semántica de Columnas: Entiende a qué te refieres aunque no uses el nombre exacto de la columna (ej. "ganancias" vs "beneficio_neto") gracias a Sentence-Transformers y FAISS.
+
+Visualización Dinámica: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
+
+Seguridad y Eficiencia: Incluye caché de consultas, límites de uso por sesión y un sistema de cola para gestionar múltiples usuarios.
 
 ---
 
-## 🧱 Stack
-- **UI**: Gradio 5.43.1  
-- **Datos**: pandas, pyarrow  
-- **Visualización**: Plotly  
-- **Embeddings**: sentence-transformers (`all-MiniLM-L6-v2`)  
-- **Búsqueda**: FAISS (CPU)  
-- **IA**: DeepSeek Chat API (para parsear intención y resúmenes)
+## Stack
+Interfaz: Gradio
+
+Backend: Python
+
+Manipulación de Datos: pandas
+
+Visualización: Plotly
+
+IA (LLM): API de DeepSeek Chat
+
+Embeddings de Texto: sentence-transformers
+
+Búsqueda Vectorial: FAISS (Facebook AI Similarity Search)
+
+--
