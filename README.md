@@ -1,6 +1,6 @@
 <!-- README.md -->
 <p align="center">
-  <img width="1600" height="400" alt="image" src="https://github.com/user-attachments/assets/1d0e6dce-4520-4d0a-803c-0f9f14692f80" />
+  <img width="1600" height="400" alt="image" src="img/banner.png" />
 </p>
 
 
@@ -70,11 +70,7 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 
 <img width="1002" height="1193" alt="image" src="img/main.png" />
 
-<img width="1595" height="748" alt="image" src="https://github.com/user-attachments/assets/3e6ddf20-1740-44cb-ad0a-2481e97cf221" />
-
 <img width="1002" height="1193" alt="image" src="img/test.png" />
-
-<img width="2527" height="1263" alt="image" src="https://github.com/user-attachments/assets/df859edf-21d0-4e18-a79f-2b073feea653" />
 
 
 ---
