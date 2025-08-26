@@ -164,7 +164,7 @@ class QueryProcessor:
             completion = self.client.chat.completions.create(model="deepseek-chat", messages=messages, temperature=temperature)
             return completion.choices[0].message.content
         except Exception as e:
-            return f'{{"intent": "error", "message": "Error en la API: {e}"}}'
+            return f'{"{"}"intent": "error", "message": "Error en la API: %s"{"}"}' % e
 
     def generate_intelligent_eda(self) -> str:
         self.dm._log("Generando EDA inteligente con IA...")
@@ -189,35 +189,90 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         eda_analysis = self._get_api_completion([system_message, user_message], temperature=0.5)
         self.dm._log("✅ EDA inteligente generado.")
         return eda_analysis
-
+    
     def _generate_dynamic_examples(self) -> str:
         num = self.dm.profile.numeric[0] if self.dm.profile.numeric else "valor"
         cat = self.dm.profile.categorical[0] if self.dm.profile.categorical else "categoria"
         date = self.dm.profile.datetime[0] if self.dm.profile.datetime else "fecha"
-        ex1 = f'Pregunta: "top 5 {cat} por suma de {num}" -> JSON: {{"intent": "top_k", "dimension": ["{cat}"], "metrics": ["{num}"], "agg_func": "sum", "sort_by": "{num}", "sort_order": "descending", "limit": 5, "filters": []}}'
-        ex2 = f'Pregunta: "evolución del promedio de {num} por {date}" -> JSON: {{"intent": "trend", "dimension": ["{date}"], "metrics": ["{num}"], "agg_func": "mean", "sort_by": "{date}", "sort_order": "ascending", "limit": null, "filters": []}}'
+        ex1 = (
+            f'Pregunta: "top 5 {cat} por suma de {num}" -> JSON: '
+            f'{{"intent":"top_k","dimension":["{cat}"],"metrics":["{num}"],'
+            f'"agg_func":"sum","sort_by":"{num}","sort_order":"descending","limit":5,'
+            f'"filters":[],"chart_type":"bar"}}'
+        )
+        ex2 = (
+            f'Pregunta: "evolución del promedio de {num} por {date}" -> JSON: '
+            f'{{"intent":"trend","dimension":["{date}"],"metrics":["{num}"],'
+            f'"agg_func":"mean","sort_by":"{date}","sort_order":"ascending","limit":null,'
+            f'"filters":[],"chart_type":"line"}}'
+        )
         return f"{ex1}\n{ex2}"
-
+        
     def parse_question_to_plan(self, question: str, chat_history: List[Dict]) -> Dict[str, Any]:
+        # Construir contexto con roles claros y sin "Vista Previa" larga
         history_context = ""
         if chat_history:
-            for turn in chat_history[-2:]:
-                history_context += f"Pregunta anterior: {turn['content']}\n"
-        
-        system_message = {"role": "system", "content": "Tu única función es traducir la pregunta a un JSON válido. No escribas nada más. Tu respuesta DEBE empezar con `{` y terminar con `}`."}
-        user_message_content = f"Contexto: {history_context}\n---\nBasado en el contexto y la nueva pregunta, crea un plan JSON.\nEsquema: num_cols={self.dm.profile.numeric}, cat_cols={self.dm.profile.categorical}, date_cols={self.dm.profile.datetime}\nEjemplos:\n{self._generate_dynamic_examples()}\nMi Nueva Pregunta: \"{question}\""
+            for turn in chat_history[-2:]:  # últimos 2 turnos
+                role = "Usuario" if turn.get("role") == "user" else "Asistente"
+                content = turn.get("content", "")
+                summary = content.split("\n\n**Vista Previa")[0]  # recorta tablas largas
+                history_context += f"{role}: {summary}\n"
+
+        system_message = {
+        "role": "system",
+        "content": (
+            "Tu única función es traducir la pregunta a un JSON válido. "
+            "No escribas nada más. Tu respuesta DEBE empezar con `{` y terminar con `}`.\n"
+            "El JSON puede incluir: intent, dimension, metrics, agg_func, sort_by, sort_order, "
+            "limit, filters, chart_type. Valores de chart_type válidos: bar, line, scatter, pie."
+            )
+        }
+
+        user_message_content = (
+            f"Contexto de la conversación anterior:\n{history_context}\n---\n"
+            f"Basado en el contexto y la nueva pregunta, crea un plan JSON.\n"
+            f"Esquema: num_cols={self.dm.profile.numeric}, "
+            f"cat_cols={self.dm.profile.categorical}, date_cols={self.dm.profile.datetime}\n"
+            f"Ejemplos:\n{self._generate_dynamic_examples()}\n"
+            f"Mi Nueva Pregunta: \"{question}\""
+        )
+
         user_message = {"role": "user", "content": user_message_content}
-        
         json_str = self._get_api_completion([system_message, user_message])
+
         try:
             return json.loads(re.search(r'\{.*\}', json_str, re.DOTALL).group(0))
-        except Exception: return {"intent": "error", "message": "No pude interpretar la pregunta."}
-
+        except Exception:
+            return {"intent": "error", "message": "No pude interpretar la pregunta."}
+    
     def _match_column(self, term: str) -> Optional[str]:
-        if not term or not isinstance(term, str): return None
-        if term in self.dm.profile.all_cols: return term
-        best_match, score, _ = process.extractOne(term, self.dm.profile.all_cols)
-        return best_match if score > 80 else None
+        if not term or not isinstance(term, str):
+            return None
+        if term in self.dm.profile.all_cols:
+            return term
+
+    # 1) Léxico (rapidfuzz)
+        lexical_match, lexical_score, _ = process.extractOne(term, self.dm.profile.all_cols)
+
+    # 2) Semántico (FAISS)
+        try:
+            embedder = ResourceManager.get_embedder()
+            q_emb = embedder.encode([term], normalize_embeddings=True).astype("float32")
+            distances, indices = self.dm.col_index.search(q_emb, 1)
+            semantic_match = self.dm.profile.all_cols[int(indices[0][0])]
+            # faiss IndexFlatIP devuelve similitud coseno (porque normalizamos), en [-1,1]
+            sim = float(distances[0][0])
+            semantic_score = max(0.0, min(1.0, (sim + 1) / 2.0)) * 100  # a 0..100
+        except Exception:
+            semantic_match, semantic_score = lexical_match, 0.0
+
+        # 3) Selección
+        # alta confianza en cualquiera de los dos → devolver el mejor
+        if lexical_score >= 85 or semantic_score >= 85:
+            return lexical_match if lexical_score >= semantic_score else semantic_match
+
+    # si ambos bajos, devolvemos el mejor léxico como fallback
+        return lexical_match
         
     def execute_plan(self, plan: Dict[str, Any]) -> pd.DataFrame:
         temp_df = self.dm.final_df.copy()
@@ -225,8 +280,13 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
             for f in plan["filters"]:
                 col, op, val = self._match_column(f.get("column")), f.get("operator"), f.get("value")
                 if not all([col, op, val is not None]): continue
-                try: temp_df = temp_df.query(f"`{col}` {op} '{val}'" if isinstance(val, str) else f"`{col}` {op} {val}", engine='python')
-                except Exception as e: print(f"Error al filtrar: {e}")
+                try:
+                    temp_df = temp_df.query(
+                        f"`{col}` {op} '{val}'" if isinstance(val, str) else f"`{col}` {op} {val}",
+                        engine='python'
+                    )
+                except Exception as e:
+                    print(f"Error al filtrar: {e}")
         
         dims = [self._match_column(d) for d in plan.get("dimension", []) if self._match_column(d)]
         metrics = [self._match_column(m) for m in plan.get("metrics", []) if self._match_column(m)]
@@ -296,35 +356,61 @@ def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
 def chat_response_flow(message: str, history: List[Dict], session_state: SessionState):
     MAX_QUERIES = 20
     if session_state is None or session_state.data_manager is None:
-        yield "Por favor, carga un dataset primero en la pestaña '1. Cargar Datos'."; return
-    
+        yield "Por favor, carga un dataset primero en la pestaña '1. Cargar Datos'.", gr.update(visible=False)
+        return
+
     if session_state.query_count >= MAX_QUERIES:
-        yield f"Alcanzaste el límite de {MAX_QUERIES} consultas. Carga un nuevo dataset."; return
+        yield f"Alcanzaste el límite de {MAX_QUERIES} consultas. Carga un nuevo dataset.", gr.update(visible=False)
+        return
 
     if message in session_state.query_cache:
-        yield session_state.query_cache[message]; return
+        yield session_state.query_cache[message], gr.update(visible=False)
+        return
 
     processor = QueryProcessor(session_state.data_manager)
-    
     plan = processor.parse_question_to_plan(message, history)
     if plan.get("intent") == "error":
-        yield plan.get("message"); return
-        
+        yield plan.get("message"), gr.update(visible=False)
+        return
+
+    # Ejecutar plan y resumir
     result_df = processor.execute_plan(plan)
     summary = processor.generate_summary(result_df, message)
-    
+
+    # Intentar gráfico dinámico
+    fig = None
+    try:
+        chart_type = (plan.get("chart_type") or "").lower().strip()
+        dims = [processor._match_column(d) for d in plan.get("dimension", []) if processor._match_column(d)]
+        metrics = [processor._match_column(m) for m in plan.get("metrics", []) if processor._match_column(m)]
+
+        if chart_type and result_df is not None and not result_df.empty and dims and metrics:
+            x = dims[0]; y = metrics[0]
+            if chart_type == "bar":
+                fig = px.bar(result_df, x=x, y=y, title=f"{y} por {x}")
+            elif chart_type == "line":
+                fig = px.line(result_df, x=x, y=y, markers=True, title=f"Evolución de {y}")
+            elif chart_type == "scatter":
+                x_scatter = metrics[1] if len(metrics) > 1 else x
+                fig = px.scatter(result_df, x=x_scatter, y=y, title=f"Relación {y} vs {x_scatter}")
+            elif chart_type == "pie":
+                fig = px.pie(result_df, names=x, values=y, title=f"Distribución de {y} por {x}")
+    except Exception as e:
+        print(f"No se pudo generar el gráfico: {e}")
+        fig = None
+
     session_state.increment_query_count()
-    
-    response = summary
-    if not result_df.empty:
-        table_markdown = result_df.head(10).to_markdown(index=False)
-        response += f"\n\n**Vista Previa de los Resultados:**\n{table_markdown}"
-    
-    session_state.query_cache[message] = response
-    yield response
+    session_state.query_cache[message] = summary
+
+    # Mostrar gráfico si existe, si no ocultarlo (sin dejar hueco)
+    if fig is not None:
+        yield summary, gr.update(value=fig, visible=True)
+    else:
+        yield summary, gr.update(visible=False)
+
 
 # ==============================================================================
-# 3. CONSTRUCCIÓN DE LA INTERFAZ (CENTRADA + RESIZE TAB 2)
+# 3. CONSTRUCCIÓN DE LA INTERFAZ (Tab 1 centrado • Tab 2 50/50 full-bleed)
 # ==============================================================================
 custom_css = """
 /* Fuente e higiene visual */
@@ -350,7 +436,7 @@ custom_css = """
   border: none !important;
 }
 
-/* Centro de la app */
+/* Wrapper centrado para la cabecera y Tab 1 */
 #app-center { 
   max-width: 1100px; 
   margin: 0 auto !important; 
@@ -376,53 +462,40 @@ custom_css = """
 /* Botones */
 .gr-button { border-radius: 10px !important; }
 
-/* Layout redimensionable (solo Tab 2) */
-#layout {
-  display: grid;
-  grid-template-columns: var(--left, 1fr) 8px var(--right, 1fr);
-  gap: 12px;
-  align-items: stretch;
+/* Tab 2: contenedor full-bleed que ocupa todo el ancho de la ventana */
+#tab2-bleed { 
+  width: 100vw; 
+  margin-left: calc(50% - 50vw); 
+  padding: 0 20px 24px; 
 }
-#panel-left, #panel-right { min-width: 260px; overflow: auto; }
-#dragbar {
-  width: 8px; cursor: col-resize; border-radius: 6px;
-  background: linear-gradient(180deg, #e2e8f0, #cbd5e1);
+
+/* Tab 2: dos columnas 50/50 fijas y con buen gap */
+#two-col { 
+  display: grid !important; 
+  grid-template-columns: 1fr 1fr; 
+  gap: 16px; 
 }
-.dark #dragbar { background: linear-gradient(180deg, #1f2937, #111827); }
 
-/* Landing centrado aún más estrecho */
-#center-landing { max-width: 900px; margin: 0 auto; }
-"""
+/* Alturas cómodas para que no se vean "pequeños" */
+#analysis-card, #chat-card { min-height: 68vh; }
 
-# Script para hacer draggable el separador (Tab 2)
-resize_script = """
-<script>
-(function(){
-  const root = document.getElementById('layout');
-  const bar  = document.getElementById('dragbar');
-  if(!root || !bar) return;
-  root.style.setProperty('--left', '1fr');
-  root.style.setProperty('--right','1fr');
-  let dragging = false;
-  bar.addEventListener('mousedown', ()=> dragging = true);
-  window.addEventListener('mouseup', ()=> dragging = false);
-  window.addEventListener('mousemove', (e)=>{
-    if(!dragging) return;
-    const rect = root.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    const min = 240;
-    x = Math.max(min, Math.min(rect.width - min, x));
-    const left = x / rect.width;
-    const right = 1 - left;
-    root.style.gridTemplateColumns = (left*100) + '% 8px ' + (right*100) + '%';
-  });
-})();
-</script>
+/* Ajustes internos (tablas y plot) */
+#analysis-card .dataframe { font-size: 14px; }
+
+/* Chat: que el input quede al fondo y el historial ocupe el alto disponible */
+#chat-card { display: flex; flex-direction: column; }
+#chat-card > .gr-block { display: flex; flex-direction: column; height: 100%; }
+#chat-card .gr-chat-interface { display: flex; flex-direction: column; height: 100%; }
+#chat-card .gr-chatbot { flex: 1 1 auto; min-height: 0; }
+#chat-card form { margin-top: auto; padding-top: 8px; }
+
+/* Título de la sección de gráficos */
+#viz-title { margin-bottom: 6px; opacity: .9; }
 """
 
 with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_css) as demo:
     with gr.Column(elem_id="app-center"):
-        # Header moderno (centrado por el wrapper)
+        # Header (centrado)
         gr.HTML(
             """
             <div class="app-header">
@@ -437,7 +510,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
         with gr.Tabs() as tabs:
             # --- Tab 1: Cargar Datos (centrado) ---
             with gr.TabItem("1. Cargar Datos", id=0):
-                with gr.Column(elem_id="center-landing"):
+                with gr.Column():
                     with gr.Group(elem_classes=["card"]):
                         gr.Markdown("### 📊 Estado del pipeline")
                         status_markdown = gr.Markdown("**Estado:** Esperando archivos…")
@@ -449,50 +522,60 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
                             file_count="multiple",
                             file_types=[".csv", ".xlsx", ".xls"]
                         )
-                        build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
+                        build_btn = gr.Button("Construir y Analizar", variant="primary")
 
-            # --- Tab 2: Panel de Datos (IZQ) + Chat (DER) con resizer ---
+            # --- Tab 2: Panel de Datos (IZQ) + Chat (DER) 50/50 full-bleed ---
             with gr.TabItem("2. Chat Interactivo", id=1):
-                with gr.Row(elem_id="layout"):
-                    # IZQUIERDA: Panel de análisis de datos
-                    with gr.Column(scale=5, elem_id="panel-left"):
-                        with gr.Group(elem_classes=["card"]):
-                            with gr.Accordion("📈 Panel de Datos y Análisis", open=True):
-                                gr.Markdown("#### Análisis Inteligente por IA")
-                                intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis…")
-                                gr.Markdown("---")
-                                gr.Markdown("#### Vista Previa de los Datos")
-                                preview_df_output = gr.Dataframe(interactive=False, wrap=True, **{DF_H: 260}, show_label=False)
-                                with gr.Tabs():
-                                    with gr.TabItem("EDA Técnico"):
-                                        gr.Markdown("**Perfil de Columnas**")
-                                        eda_profile_df = gr.Dataframe(interactive=False, **{DF_H: 220}, show_label=False)
-                                        gr.Markdown("**Matriz de Correlación**")
-                                        corr_plot = gr.Plot(label=None, show_label=False)
-                                    with gr.TabItem("Log del Sistema"):
-                                        gr.Markdown("**Registro de operaciones**")
-                                        system_log_output = gr.Code(show_label=False, interactive=False)
-                    # Separador draggable
-                    gr.HTML("<div id='dragbar'></div>", elem_id="dragbar")
-                    # DERECHA: Chat
-                    with gr.Column(scale=7, elem_id="panel-right"):
-                        with gr.Group(elem_classes=["card"]):
-                            gr.Markdown("### 💬 Conversa con tus datos")
-                            examples = [
-                                "Top 5 productos por suma de ventas",
-                                "Evolución del promedio de ingresos por mes",
-                                "Filtrar país = Chile y monto entre 1000 y 2000",
-                                "Comparar precio promedio por región en el tiempo"
-                            ]
-                            gr.ChatInterface(
-                                fn=chat_response_flow,
-                                additional_inputs=[app_state],
-                                title=None,
-                                description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
-                                type="messages",
-                            )
-        # Script de resize (Tab 2)
-        gr.HTML(resize_script)
+                with gr.Column(elem_id="tab2-bleed"):
+                    with gr.Row(elem_id="two-col"):
+                        # IZQUIERDA: Panel de análisis de datos
+                        with gr.Column():
+                            with gr.Group(elem_classes=["card"], elem_id="analysis-card"):
+                                with gr.Accordion("📈 Panel de Datos y Análisis", open=True):
+                                    gr.Markdown("#### Análisis Inteligente por IA")
+                                    intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis…")
+                                    gr.Markdown("---")
+                                    gr.Markdown("#### Vista Previa de los Datos")
+                                    preview_df_output = gr.Dataframe(interactive=False, wrap=True, **{DF_H: 320}, show_label=False)
+                                    with gr.Tabs():
+                                        with gr.TabItem("EDA Técnico"):
+                                            gr.Markdown("**Perfil de Columnas**")
+                                            eda_profile_df = gr.Dataframe(interactive=False, **{DF_H: 260}, show_label=False)
+                                            gr.Markdown("**Matriz de Correlación**")
+                                            corr_plot = gr.Plot(label=None, show_label=False)
+                                        with gr.TabItem("Log del Sistema"):
+                                            gr.Markdown("**Registro de operaciones**")
+                                            system_log_output = gr.Code(show_label=False, interactive=False)
+
+                        # DERECHA: Chat
+                        with gr.Column():
+                            with gr.Group(elem_classes=["card"], elem_id="chat-card"):
+                                # Título de la zona de gráficos
+                                gr.Markdown("### 📊 Visualizaciones", elem_id="viz-title")
+
+                                # El gráfico inicia oculto; se mostrará cuando haya figura
+                                chat_plot = gr.Plot(label=None, show_label=False, visible=False)
+
+                                # Título del chat (debajo de la visualización)
+                                gr.Markdown("### 💬 Conversa con tus datos")
+
+                                examples = [
+                                    "Top 5 productos por suma de ventas",
+                                    "Evolución del promedio de ingresos por mes",
+                                    "Filtrar país = Chile y monto entre 1000 y 2000",
+                                    "Comparar precio promedio por región en el tiempo"
+                                ]
+
+                                gr.ChatInterface(
+                                    fn=chat_response_flow,
+                                    additional_inputs=[app_state],
+                                    additional_outputs=[chat_plot],  # <- conectamos el Plot
+                                    title=None,
+                                    description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
+                                    type="messages",
+                                )
+
+
 
     # Acción del botón (mapeo de outputs conservado)
     build_btn.click(
