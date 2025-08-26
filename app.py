@@ -1,6 +1,5 @@
-# analista_de_datos.py — v6.0 (Final Polished)
+# analista_de_datos.py
 # Autor Original: Ricardo Urdaneta (https://github.com/Ricardouchub)
-# Mejoras por: Gemini (Google)
 
 import os
 import re
@@ -20,6 +19,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# --- Compatibilidad v4/v5 para alturas de DataFrame ---
+IS_V5 = int(gr.__version__.split(".", 1)[0]) >= 5
+DF_H = "max_height" if IS_V5 else "height"
 
 # ==============================================================================
 # 0. CONFIGURACIÓN Y CLASES DE ESTADO
@@ -213,7 +216,6 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
     def _match_column(self, term: str) -> Optional[str]:
         if not term or not isinstance(term, str): return None
         if term in self.dm.profile.all_cols: return term
-        # Lógica de búsqueda semántica y léxica... (simplificado)
         best_match, score, _ = process.extractOne(term, self.dm.profile.all_cols)
         return best_match if score > 80 else None
         
@@ -263,9 +265,8 @@ def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
         
         dm = DataManager([f.name for f in files])
         
-        # Simulación de progreso a través de las etapas
         progress(0.2, desc="Cargando y procesando archivos...")
-        dm.load_and_process_files() # Esta función interna ya tiene _log
+        dm.load_and_process_files()
         
         if len(dm.final_df) > MAX_TOTAL_ROWS:
             raise ValueError(f"El dataset excede el límite de {MAX_TOTAL_ROWS} filas.")
@@ -289,7 +290,6 @@ def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
                 intelligent_eda, gr.update(visible=True), gr.update(selected=1))
 
     except Exception as e:
-        # En caso de error, oculta los componentes de salida y muestra el error
         error_message = f"❌ Error: {e}"
         return None, error_message, "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0)
 
@@ -306,7 +306,7 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
 
     processor = QueryProcessor(session_state.data_manager)
     
-    plan = processor.parse_question_to_plan(message, history) # Se debe pasar el historial aquí
+    plan = processor.parse_question_to_plan(message, history)
     if plan.get("intent") == "error":
         yield plan.get("message"); return
         
@@ -324,51 +324,120 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
     yield response
 
 # ==============================================================================
-# 3. CONSTRUCCIÓN DE LA INTERFAZ
+# 3. CONSTRUCCIÓN DE LA INTERFAZ (UI MODERNA)
 # ==============================================================================
-with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA") as demo:
-    gr.Markdown("# 🤖 Analista de Datos IA\n### Sube tus datos → Haz preguntas en lenguaje natural → Obtén análisis al instante.")
+custom_css = """
+/* Fuente e higiene visual */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+:root { --radius-lg: 14px; }
+.gradio-container { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial; }
+blockquote { border-left: 4px solid #e5e7eb; margin: 0.6rem 0; padding-left: 0.8rem; color: #374151; }
+
+/* Header */
+.app-header { 
+  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 60%, #9333ea 100%);
+  color: white; border-radius: 16px; padding: 20px 24px; box-shadow: 0 8px 28px rgba(99,102,241,0.25);
+}
+.app-header h1 { margin: 0 0 6px 0; font-weight: 700; letter-spacing: -0.015em; }
+.app-header p { margin: 0; opacity: 0.95; }
+
+/* Tarjetas */
+.card { 
+  background: #ffffff; border-radius: var(--radius-lg);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  padding: 18px; border: 1px solid #eef2f7;
+}
+.dark .card { background: #0b1220; border-color: #1f2937; }
+
+/* Pequeños ajustes */
+.gr-button { border-radius: 10px !important; }
+"""
+
+with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_css) as demo:
+    # Header moderno
+    gr.HTML(
+        """
+        <div class="app-header">
+          <h1>🤖 Analista de Datos IA</h1>
+          <p>Sube tus datos • Haz preguntas en lenguaje natural • Obtén análisis claros y visuales</p>
+        </div>
+        """
+    )
+
     app_state = gr.State()
 
     with gr.Tabs() as tabs:
+        # --- Tab 1: Cargar Datos ---
         with gr.TabItem("1. Cargar Datos", id=0):
-            gr.Markdown("## Paso 1: Sube tus datos para comenzar el análisis")
-            files = gr.File(label="Archivos soportados: CSV, Excel (.xlsx, .xls)", file_count="multiple", file_types=[".csv", ".xlsx", ".xls"])
-            build_btn = gr.Button("Construir y Analizar", variant="primary")
-            status_markdown = gr.Markdown("**Estado:** Esperando archivos...")
-            summary_markdown = gr.Markdown()
-        
-        with gr.TabItem("2. Chat Interactivo", id=1):
-            # ### CAMBIO ### - Inicio: El panel de análisis se mueve aquí
-            with gr.Accordion("Panel de Datos y Análisis (clic para expandir/minimizar)", open=True):
-                gr.Markdown("### Análisis Inteligente por IA")
-                intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis...")
-                gr.Markdown("---")
-                gr.Markdown("### Vista Previa de los Datos")
-                preview_df_output = gr.Dataframe(interactive=False, wrap=True)
-                with gr.Tabs():
-                    with gr.TabItem("EDA Técnico"):
-                        eda_profile_df = gr.Dataframe(label="Perfil de Columnas")
-                        corr_plot = gr.Plot(label="Matriz de Correlación")
-                    with gr.TabItem("Log del Sistema"):
-                        system_log_output = gr.Code(label="Registro de operaciones", interactive=False)
-            # ### CAMBIO ### - Fin: El panel de análisis se mueve aquí
-            
-            gr.ChatInterface(
-                fn=chat_response_flow,
-                additional_inputs=[app_state],
-                title="Asistente de Análisis",
-                description="Haz preguntas como '¿Cuál es el top 5 de productos por ventas?' o 'Muéstrame la evolución de los ingresos'.",
-                type="messages"
-            )
+            with gr.Row():
+                with gr.Column(scale=6):
+                    with gr.Group(elem_classes=["card"]):
+                        gr.Markdown("### 📥 Subir archivos")
+                        files = gr.File(
+                            label="Archivos soportados: CSV, Excel (.xlsx, .xls)",
+                            file_count="multiple",
+                            file_types=[".csv", ".xlsx", ".xls"]
+                        )
+                        build_btn = gr.Button("🚀 Construir y Analizar", variant="primary")
+                with gr.Column(scale=6):
+                    with gr.Group(elem_classes=["card"]):
+                        gr.Markdown("### 📊 Estado del pipeline")
+                        status_markdown = gr.Markdown("**Estado:** Esperando archivos…")
+                        summary_markdown = gr.Markdown()
 
-    # ### CAMBIO ### - El .click ahora actualiza los componentes en la segunda pestaña
+        # --- Tab 2: Chat + Panel de Datos ---
+        with gr.TabItem("2. Chat Interactivo", id=1):
+            with gr.Row():
+                # Columna izquierda: Chat
+                with gr.Column(scale=7):
+                    with gr.Group(elem_classes=["card"]):
+                        gr.Markdown("### 💬 Conversa con tus datos")
+                        examples = [
+                            "Top 5 productos por suma de ventas",
+                            "Evolución del promedio de ingresos por mes",
+                            "Filtrar país = Chile y monto entre 1000 y 2000",
+                            "Comparar precio promedio por región en el tiempo"
+                        ]
+                        gr.ChatInterface(
+                            fn=chat_response_flow,
+                            additional_inputs=[app_state],
+                            title=None,
+                            description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
+                            type="messages",
+                        )
+
+                # Columna derecha: Panel de análisis (colapsable)
+                with gr.Column(scale=5):
+                    with gr.Group(elem_classes=["card"]):
+                        with gr.Accordion("📈 Panel de Datos y Análisis", open=True):
+                            gr.Markdown("#### Análisis Inteligente por IA")
+                            intelligent_eda_output = gr.Markdown("Sube un archivo para generar el análisis…")
+                            gr.Markdown("---")
+                            gr.Markdown("#### Vista Previa de los Datos")
+                            preview_df_output = gr.Dataframe(interactive=False, wrap=True, **{DF_H: 260})
+                            with gr.Tabs():
+                                with gr.TabItem("EDA Técnico"):
+                                    eda_profile_df = gr.Dataframe(label="Perfil de Columnas", interactive=False, **{DF_H: 220})
+                                    corr_plot = gr.Plot(label="Matriz de Correlación")
+                                with gr.TabItem("Log del Sistema"):
+                                    system_log_output = gr.Code(label="Registro de operaciones", interactive=False)
+
+    # Acción del botón (mapeo de outputs conservado)
     build_btn.click(
         fn=build_dataset_flow,
         inputs=[files],
-        outputs=[app_state, status_markdown, summary_markdown, system_log_output,
-                 preview_df_output, eda_profile_df, corr_plot,
-                 intelligent_eda_output, tabs, tabs] # Se actualiza el 'tabs' para forzar el cambio
+        outputs=[
+            app_state,               # state
+            status_markdown,         # estado
+            summary_markdown,        # resumen dataset
+            system_log_output,       # log
+            preview_df_output,       # preview tabla
+            eda_profile_df,          # perfil columnas
+            corr_plot,               # correlaciones
+            intelligent_eda_output,  # EDA IA
+            tabs,                    # mostrar pestañas
+            tabs                     # enfocar Tab 2
+        ]
     )
 
 if __name__ == "__main__":
