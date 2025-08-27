@@ -48,15 +48,14 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 
 ---
 
-## Features Principales
+## Carcterísticas Principales
 
-* **Chat-with-Data Universal**: Sube uno o más archivos CSV/Excel y empieza a preguntar.
-* **Joins Automáticos**: Si subes múltiples archivos, la app detecta claves comunes y sugiere uniones.
-* **Inteligencia Artificial Avanzada**: Usa la API de DeepSeek para:
-* **EDA Inteligente**: Genera un resumen ejecutivo de tus datos apenas los subes.
-* **Text-to-Plan**: Convierte tus preguntas en un plan de ejecución para pandas.
-* **Memoria Conversacional**: Recuerda el contexto de tus últimas preguntas.
-* **Búsqueda Semántica de Columnas**: Entiende a qué te refieres aunque no uses el nombre exacto de la columna (ej. "ganancias" vs "beneficio_neto") gracias a Sentence-Transformers y FAISS.
+* **Multiples archivos**: Puede manejar uno o más archivos CSV/Excel.
+* **Joins Automáticos**: Al subir  múltiples archivos, la app detecta claves comunes y sugiere uniones.
+* **EDA Inteligente**: Genera un resumen ejecutivo de los datos apenas los subes.
+* **Text-to-Plan**: Convierte las preguntas en un plan de ejecución para pandas.
+* **Memoria Conversacional**: Recuerda el contexto de las últimas preguntas.
+* **Búsqueda Semántica de Columnas**: Entiende contexto aunque no se use el nombre exacto de la columna gracias a Sentence-Transformers y FAISS.
 * **Visualización Dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
 * **Seguridad y Eficiencia**: Incluye caché de consultas, límites de uso por sesión y un sistema de cola para gestionar múltiples usuarios.
 
