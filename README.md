@@ -61,7 +61,7 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 
 ---
 
-## Stack
+## Herramientas
 
 **Interfaz**: Gradio
 
