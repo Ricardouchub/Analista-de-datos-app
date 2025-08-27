@@ -36,7 +36,7 @@ Este proyecto es un potente Analista de Datos IA que permite conversar con tus a
 
 ---
 
-## Cómo Funciona 
+## Funcionamiento 
 
 El flujo de trabajo de la aplicación sigue estos pasos:
 
