@@ -6,7 +6,7 @@
 
 <p align="center">
   <!-- Badges principales -->
-  <img src="https://img.shields.io/badge/Estado-Completado-2ECC71?style=flat-square" alt="Estado"/>
+  <img src="https://img.shields.io/badge/Proyecto_Completado-%E2%9C%94-2ECC71?style=flat-square&logo=checkmarx&logoColor=white" alt="Proyecto Completado"/>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/Gradio-5.43.1-F58025?style=flat-square&logo=gradio&logoColor=white" alt="Gradio"/>
   <img src="https://img.shields.io/badge/Hugging%20Face-Spaces-FFD21E?style=flat-square&logo=huggingface&logoColor=black" alt="HF Spaces"/>
@@ -19,17 +19,28 @@
 
 Este proyecto es un potente Analista de Datos IA que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un Análisis Exploratorio (EDA) generado por IA. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
 
-<img width="437" height="243" alt="image" src="https://github.com/user-attachments/assets/8494945f-5453-4201-9800-ed451e78661d" />
+
+<p align="center">
+  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank"><b>Analista de Datos IA</b></a>
+</p>
+<p align="center">
+  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank">
+    <img width="437" height="243" alt="Analista de Datos IA" src="https://github.com/user-attachments/assets/8494945f-5453-4201-9800-ed451e78661d" />
+  </a>
+</p>
+
+
+
 
 
 
 ---
 
-## Cómo Funciona 
+## Funcionamiento 
 
 El flujo de trabajo de la aplicación sigue estos pasos:
 
-* **Carga y Limpieza**: El usuario sube los archivos. pandas los lee y aplica una limpieza automática.
+* **Carga y Limpieza**: El usuario sube los archivos, pandas los lee y aplica una limpieza automática.
 * **Perfilado y EDA**: Se identifican los tipos de columnas `numéricas`, `categóricas` y `fechas`. Se genera un perfil técnico. Inmediatamente, se hace una llamada a la IA para generar el EDA Inteligente.
 * **Chat y Planificación**: El usuario hace una pregunta. La pregunta, el historial del chat y el esquema de los datos se envían a la IA, que devuelve un plan de acción en formato JSON.
 * **Ejecución**: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
@@ -37,17 +48,16 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 
 ---
 
-## Features Principales
+## Carcterísticas Principales
 
-* **Chat-with-Data Universal**: Sube uno o más archivos CSV/Excel y empieza a preguntar.
-* **Joins Automáticos**: Si subes múltiples archivos, la app detecta claves comunes y sugiere uniones.
-* **Inteligencia Artificial Avanzada**: Usa la API de DeepSeek para:
-* **EDA Inteligente**: Genera un resumen ejecutivo de tus datos apenas los subes.
-* **Text-to-Plan**: Convierte tus preguntas en un plan de ejecución para pandas.
-* **Memoria Conversacional**: Recuerda el contexto de tus últimas preguntas.
-* **Búsqueda Semántica de Columnas**: Entiende a qué te refieres aunque no uses el nombre exacto de la columna (ej. "ganancias" vs "beneficio_neto") gracias a Sentence-Transformers y FAISS.
-* **Visualización Dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
-* **Seguridad y Eficiencia**: Incluye caché de consultas, límites de uso por sesión y un sistema de cola para gestionar múltiples usuarios.
+* **Multiples archivos**: Puede manejar uno o más archivos CSV/Excel.
+* **Joins automáticos**: Al subir  múltiples archivos, la app detecta claves comunes y sugiere uniones.
+* **EDA inteligente**: Genera un resumen ejecutivo de los datos apenas los subes.
+* **Text-to-Plan**: Convierte las preguntas en un plan de ejecución para pandas.
+* **Memoria conversacional**: Recuerda el contexto de las últimas preguntas.
+* **Búsqueda semántica de columnas**: Entiende contexto aunque no se use el nombre exacto de la columna gracias a Sentence-Transformers y FAISS.
+* **Visualización dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
+* **Eficiencia**: Incluye caché de consultas y límites de uso por sesión.
 
 ---
 
