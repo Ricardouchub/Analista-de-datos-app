@@ -40,7 +40,7 @@ Este proyecto es un potente Analista de Datos IA que permite conversar con tus a
 
 El flujo de trabajo de la aplicación sigue estos pasos:
 
-* **Carga y Limpieza**: El usuario sube los archivos. pandas los lee y aplica una limpieza automática.
+* **Carga y Limpieza**: El usuario sube los archivos, pandas los lee y aplica una limpieza automática.
 * **Perfilado y EDA**: Se identifican los tipos de columnas `numéricas`, `categóricas` y `fechas`. Se genera un perfil técnico. Inmediatamente, se hace una llamada a la IA para generar el EDA Inteligente.
 * **Chat y Planificación**: El usuario hace una pregunta. La pregunta, el historial del chat y el esquema de los datos se envían a la IA, que devuelve un plan de acción en formato JSON.
 * **Ejecución**: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
