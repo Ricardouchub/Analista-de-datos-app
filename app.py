@@ -1,4 +1,4 @@
-# analista_de_datos.py
+# app.py
 # Autor Original: Ricardo Urdaneta (https://github.com/Ricardouchub)
 
 import os
@@ -59,7 +59,7 @@ class ResourceManager:
         return cls._deepseek_client
 
 # ==============================================================================
-# 1. CLASES DE LÓGICA DE NEGOCIO
+# LÓGICA DE NEGOCIO (Carga, Limpieza, Perfilado, EDA, Chat)
 # ==============================================================================
 @dataclass
 class ColumnProfile:
@@ -251,10 +251,10 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         if term in self.dm.profile.all_cols:
             return term
 
-    # 1) Léxico (rapidfuzz)
+    # Léxico (rapidfuzz)
         lexical_match, lexical_score, _ = process.extractOne(term, self.dm.profile.all_cols)
 
-    # 2) Semántico (FAISS)
+    # Semántico (FAISS)
         try:
             embedder = ResourceManager.get_embedder()
             q_emb = embedder.encode([term], normalize_embeddings=True).astype("float32")
@@ -266,7 +266,7 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         except Exception:
             semantic_match, semantic_score = lexical_match, 0.0
 
-        # 3) Selección
+        # Selección
         # alta confianza en cualquiera de los dos → devolver el mejor
         if lexical_score >= 85 or semantic_score >= 85:
             return lexical_match if lexical_score >= semantic_score else semantic_match
@@ -308,7 +308,7 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         return self._get_api_completion(messages)
 
 # ==============================================================================
-# 2. LÓGICA DE LA INTERFAZ (FLUJOS Y FUNCIONES)
+# LÓGICA DE LA INTERFAZ (Flujos y funciones de UI)
 # ==============================================================================
 def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
     """Flujo completo para cargar, validar y analizar los archivos con feedback de progreso."""
@@ -410,87 +410,12 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
 
 
 # ==============================================================================
-# 3. CONSTRUCCIÓN DE LA INTERFAZ (Tab 1 centrado • Tab 2 50/50 full-bleed)
+# CONSTRUCCIÓN DE LA INTERFAZ (Tab 1 centrado • Tab 2 50/50 full-bleed)
 # ==============================================================================
 custom_css = """
 /* Fuente e higiene visual */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root { --radius-lg: 14px; }
-
-/* Quitar gris en bloques/labels/headers */
-.gradio-container, :root {
-  --block-background-fill: transparent !important;
-  --block-border-color: transparent !important;
-  --block-label-background-fill: transparent !important;
-  --block-title-background-fill: transparent !important;
-}
-.gradio-container .gr-markdown,
-.gradio-container .gr-markdown *, 
-.gradio-container .label, 
-.gradio-container .label-wrap,
-.gradio-container .panel-header,
-.gradio-container .block .header,
-.gradio-container .form { 
-  background: transparent !important; 
-  box-shadow: none !important;
-  border: none !important;
-}
-
-/* Wrapper centrado para la cabecera y Tab 1 */
-#app-center { 
-  max-width: 1100px; 
-  margin: 0 auto !important; 
-  padding: 8px 16px 24px;
-}
-
-/* Header */
-.app-header { 
-  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 60%, #9333ea 100%);
-  color: white; border-radius: 16px; padding: 20px 24px; box-shadow: 0 8px 28px rgba(99,102,241,0.25);
-}
-.app-header h1 { margin: 0 0 6px 0; font-weight: 700; letter-spacing: -0.015em; }
-.app-header p { margin: 0; opacity: 0.95; }
-
-/* Tarjetas */
-.card { 
-  background: #ffffff; border-radius: var(--radius-lg);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
-  padding: 18px; border: 1px solid #eef2f7;
-}
-.dark .card { background: #0b1220; border-color: #1f2937; }
-
-/* Botones */
-.gr-button { border-radius: 10px !important; }
-
-/* Tab 2: contenedor full-bleed que ocupa todo el ancho de la ventana */
-#tab2-bleed { 
-  width: 100vw; 
-  margin-left: calc(50% - 50vw); 
-  padding: 0 20px 24px; 
-}
-
-/* Tab 2: dos columnas 50/50 fijas y con buen gap */
-#two-col { 
-  display: grid !important; 
-  grid-template-columns: 1fr 1fr; 
-  gap: 16px; 
-}
-
-/* Alturas cómodas para que no se vean "pequeños" */
-#analysis-card, #chat-card { min-height: 68vh; }
-
-/* Ajustes internos (tablas y plot) */
-#analysis-card .dataframe { font-size: 14px; }
-
-/* Chat: que el input quede al fondo y el historial ocupe el alto disponible */
-#chat-card { display: flex; flex-direction: column; }
-#chat-card > .gr-block { display: flex; flex-direction: column; height: 100%; }
-#chat-card .gr-chat-interface { display: flex; flex-direction: column; height: 100%; }
-#chat-card .gr-chatbot { flex: 1 1 auto; min-height: 0; }
-#chat-card form { margin-top: auto; padding-top: 8px; }
-
-/* Título de la sección de gráficos */
-#viz-title { margin-bottom: 6px; opacity: .9; }
 """
 
 with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_css) as demo:
@@ -500,7 +425,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
             """
             <div class="app-header">
               <h1>🤖 Analista de Datos IA</h1>
-              <p>Sube tus datos • Haz preguntas en lenguaje natural • Obtén análisis claros y visuales</p>
+              <p>Sube tus datos > Haz preguntas en lenguaje natural > Obtén análisis claros y visuales</p>
             </div>
             """
         )
