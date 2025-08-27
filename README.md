@@ -51,13 +51,13 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 ## Carcterísticas Principales
 
 * **Multiples archivos**: Puede manejar uno o más archivos CSV/Excel.
-* **Joins Automáticos**: Al subir  múltiples archivos, la app detecta claves comunes y sugiere uniones.
-* **EDA Inteligente**: Genera un resumen ejecutivo de los datos apenas los subes.
+* **Joins automáticos**: Al subir  múltiples archivos, la app detecta claves comunes y sugiere uniones.
+* **EDA inteligente**: Genera un resumen ejecutivo de los datos apenas los subes.
 * **Text-to-Plan**: Convierte las preguntas en un plan de ejecución para pandas.
-* **Memoria Conversacional**: Recuerda el contexto de las últimas preguntas.
-* **Búsqueda Semántica de Columnas**: Entiende contexto aunque no se use el nombre exacto de la columna gracias a Sentence-Transformers y FAISS.
-* **Visualización Dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
-* **Seguridad y Eficiencia**: Incluye caché de consultas, límites de uso por sesión y un sistema de cola para gestionar múltiples usuarios.
+* **Memoria conversacional**: Recuerda el contexto de las últimas preguntas.
+* **Búsqueda semántica de columnas**: Entiende contexto aunque no se use el nombre exacto de la columna gracias a Sentence-Transformers y FAISS.
+* **Visualización dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
+* **Eficiencia**: Incluye caché de consultas y límites de uso por sesión.
 
 ---
 
