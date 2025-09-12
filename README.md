@@ -1,11 +1,8 @@
-<!-- README.md -->
 <p align="center">
   <img width="1600" height="400" alt="image" src="img/banner.png" />
 </p>
 
-
 <p align="center">
-  <!-- Badges principales -->
   <img src="https://img.shields.io/badge/Proyecto_Completado-%E2%9C%94-2ECC71?style=flat-square&logo=checkmarx&logoColor=white" alt="Proyecto Completado"/>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/Gradio-5.43.1-F58025?style=flat-square&logo=gradio&logoColor=white" alt="Gradio"/>
@@ -15,13 +12,13 @@
   <img src="https://img.shields.io/badge/Sentence--Transformers-Embeddings-0E83CD?style=flat-square" alt="Sentence Transformers"/>
   <img src="https://img.shields.io/badge/FAISS-Vector%20Search-1E90FF?style=flat-square" alt="FAISS"/>
   <img src="https://img.shields.io/badge/DeepSeek-API-8A2BE2?style=flat-square" alt="DeepSeek"/>
+  <img src="https://img.shields.io/badge/PydanticAI-Typed%20Agent-4B8BBE?style=flat-square" alt="PydanticAI"/>
 </p>
 
-Este proyecto es un potente Analista de Datos IA que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un Análisis Exploratorio (EDA) generado por IA. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
-
+Este proyecto es un potente **Analista de Datos IA** que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un **Análisis Exploratorio (EDA) generado por IA**. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank"><b>Analista de Datos IA</b></a>
+  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank"><b>Prueba la App</b></a>
 </p>
 <p align="center">
   <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank">
@@ -29,53 +26,59 @@ Este proyecto es un potente Analista de Datos IA que permite conversar con tus a
   </a>
 </p>
 
+---
 
+## Características Principales
 
-
-
+- **Múltiples archivos**: Soporte para uno o más archivos CSV/Excel.
+- **Joins automáticos**: Al subir múltiples archivos, la app detecta claves comunes y sugiere uniones.
+- **EDA inteligente y Data Card descargable**: Genera un resumen ejecutivo de los datos (EDA) apenas los subes y permite exportar un **informe completo en Markdown**.
+- **Motor de ejecución dual (Pandas/SQL)**: Convierte preguntas en un plan de ejecución JSON (o un plan tipado con PydanticAI) que se ejecuta con **Pandas** por defecto o con **DuckDB (SQL)** activando un simple *toggle*.
+- **Memoria conversacional**: Recuerda el contexto de las últimas preguntas para un análisis más fluido.
+- **Búsqueda semántica de columnas**: Entiende el contexto de tu pregunta aunque no uses el nombre exacto de la columna, gracias a un sistema híbrido de **Sentence-Transformers (FAISS) y RapidFuzz**.
+- **Visualización dinámica**: Genera gráficos (barras, líneas, scatter, etc.) con Plotly cuando la pregunta lo amerita.
+- **Estabilidad y telemetría**: Incluye caché de consultas, límites de uso por sesión, contador de latencia y cooldown anti-spam.
 
 ---
 
-## Funcionamiento 
+## Guía de la Interfaz
 
-El flujo de trabajo de la aplicación sigue estos pasos:
+- **Pestaña 1 – Cargar Datos**
+  - Sube uno o varios archivos CSV/Excel.
+  - Automáticamente se ejecuta la limpieza, el perfilado y el **EDA inteligente (IA)**.
+  - Usa el botón **“Exportar Data Card (Markdown)”** para descargar el reporte completo.
 
-* **Carga y Limpieza**: El usuario sube los archivos, pandas los lee y aplica una limpieza automática.
-* **Perfilado y EDA**: Se identifican los tipos de columnas `numéricas`, `categóricas` y `fechas`. Se genera un perfil técnico. Inmediatamente, se hace una llamada a la IA para generar el EDA Inteligente.
-* **Chat y Planificación**: El usuario hace una pregunta. La pregunta, el historial del chat y el esquema de los datos se envían a la IA, que devuelve un plan de acción en formato JSON.
-* **Ejecución**: El plan JSON se traduce a una cadena de operaciones de pandas (.query(), .groupby(), .agg(), etc.).
-* **Respuesta y Visualización**: El resultado se presenta al usuario como un resumen en texto, una tabla en Markdown o un gráfico generado con Plotly.
-
----
-
-## Carcterísticas Principales
-
-* **Multiples archivos**: Puede manejar uno o más archivos CSV/Excel.
-* **Joins automáticos**: Al subir  múltiples archivos, la app detecta claves comunes y sugiere uniones.
-* **EDA inteligente**: Genera un resumen ejecutivo de los datos apenas los subes.
-* **Text-to-Plan**: Convierte las preguntas en un plan de ejecución para pandas.
-* **Memoria conversacional**: Recuerda el contexto de las últimas preguntas.
-* **Búsqueda semántica de columnas**: Entiende contexto aunque no se use el nombre exacto de la columna gracias a Sentence-Transformers y FAISS.
-* **Visualización dinámica**: Genera gráficos (barras, líneas, etc.) cuando la pregunta lo amerita.
-* **Eficiencia**: Incluye caché de consultas y límites de uso por sesión.
+- **Pestaña 2 – Chat Interactivo**
+  - **Izquierda**: Panel de Datos con perfil técnico, vista previa, matriz de correlación y logs.
+  - **Derecha**: Área de visualizaciones y chat.
+  - **Activa el toggle DuckDB (SQL)** para ejecutar el plan en SQL. Verás la consulta SQL generada, la explicación del plan y la telemetría (latencia y filas procesadas).
+  - **Preguntas de ejemplo**:
+    - *Top 5 productos por suma de ventas*
+    - *Evolución del promedio de ingresos por mes*
+    - *Filtrar país = Chile y monto entre 1000 y 2000*
+    - *Comparar precio promedio por región en el tiempo*
 
 ---
 
-## Herramientas
+## Stack Tecnológico
 
-**Interfaz**: Gradio
+- **Interfaz**: Gradio
+- **Backend y Manipulación de Datos**: Python, Pandas
+- **Motor SQL (Opcional)**: DuckDB
+- **Visualización**: Plotly
+- **IA (LLM)**: DeepSeek (vía API compatible con OpenAI)
+- **Agente**: PydanticAI con fallback a JSON
+- **Embeddings y Búsqueda Vectorial**: Sentence-Transformers y FAISS
 
-**Backend**: Python
+---
 
-**Manipulación de Datos**: pandas
+## Configuración y Límites
 
-**Visualización**: Plotly
-
-**IA (LLM)**: DeepSeek
-
-**Embeddings de Texto**: sentence-transformers
-
-**Búsqueda Vectorial**: FAISS (Facebook AI Similarity Search)
+- **Tamaño por archivo**: 25 MB (ajustable en `build_dataset_flow`).
+- **Filas totales**: 200,000 (ajustable).
+- **Consultas por sesión**: 20 (ajustable).
+- **Tipos de gráfico soportados**: `bar`, `line`, `scatter`, `pie` (con auto-selección si no se especifica).
+- **Compatibilidad**: Gradio **5.43.1**.
 
 ---
 
@@ -85,7 +88,6 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 
 <img width="1002" height="1193" alt="image" src="img/test.png" />
 
-
 ---
 
 ## Autor
@@ -93,3 +95,5 @@ El flujo de trabajo de la aplicación sigue estos pasos:
 **Ricardo Urdaneta**
 
 **[Linkedin](https://www.linkedin.com/in/ricardourdanetacastro)**
+
+---
