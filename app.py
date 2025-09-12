@@ -26,11 +26,12 @@ DF_H = "max_height" if IS_V5 else "height"
 
 # --- Soporte opcional para Pydantic y PydanticAI ---
 try:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, ConfigDict
     HAS_PYDANTIC = True
 except Exception:
     BaseModel = object  # stub
-    Field = lambda *a, **k: None
+    def Field(*a, **k): return None
+    class ConfigDict: pass
     HAS_PYDANTIC = False
 
 # ==============================================================================
@@ -170,18 +171,20 @@ class DataManager:
 # ----------------------------- Pydantic Models -------------------------------
 if HAS_PYDANTIC:
     class Filter(BaseModel):
+        model_config = ConfigDict(extra='forbid')
         column: str
         operator: Literal['==','!=','>','>=','<','<=','in','not in','contains','startswith','endswith'] = '=='
         value: Any
 
     class Plan(BaseModel):
+        model_config = ConfigDict(extra='forbid')
         intent: Literal['top_k','trend','groupby','filter','describe','error'] = 'top_k'
         dimension: List[str] = Field(default_factory=list)
         metrics: List[str] = Field(default_factory=list)
         agg_func: Literal['sum','mean','count','min','max','median'] = 'mean'
         sort_by: Optional[str] = None
         sort_order: Literal['ascending','descending'] = 'ascending'
-        limit: Optional[int] = None
+        limit: Optional[int] = Field(default=None, ge=1, le=100)
         filters: List[Filter] = Field(default_factory=list)
         chart_type: Optional[Literal['bar','line','scatter','pie']] = None
 else:
@@ -202,12 +205,39 @@ class QueryProcessor:
             print("[planner] Pydantic no disponible: usaré fallback a parser JSON.")
             return None
         try:
-            # Permite usar DeepSeek con interfaz OpenAI si no hay OPENAI_API_KEY
+            # Puente automático DeepSeek -> OpenAI-compatible
             if os.getenv("OPENAI_API_KEY", "") == "" and os.getenv("DEEPSEEK_API_KEY", ""):
                 os.environ.setdefault("OPENAI_API_KEY", os.getenv("DEEPSEEK_API_KEY"))
                 os.environ.setdefault("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
 
-            from pydantic_ai import Agent  # import aquí para no romper si no está instalado
+            from pydantic_ai import Agent, tool  # import local para no romper si no está instalado
+
+            @tool
+            def list_schema() -> dict:
+                "Esquema real del dataset actual."
+                return {
+                    "numeric": self.dm.profile.numeric,
+                    "categorical": self.dm.profile.categorical,
+                    "datetime": self.dm.profile.datetime,
+                    "all": self.dm.profile.all_cols,
+                }
+
+            @tool
+            def column_info(name: str) -> dict:
+                "Info rápida de una columna concreta."
+                if name not in self.dm.profile.all_cols:
+                    return {"exists": False}
+                s = self.dm.final_df[name]
+                return {
+                    "exists": True,
+                    "dtype": str(s.dtype),
+                    "unique": int(s.nunique(dropna=True)),
+                    "missing_pct": float(s.isna().mean()*100),
+                    "is_numeric": name in self.dm.profile.numeric,
+                    "is_datetime": name in self.dm.profile.datetime,
+                    "sample_values": s.dropna().astype(str).head(5).tolist(),
+                }
+
             model_name = os.getenv("PLANNER_MODEL", "openai:deepseek-chat")  # o "openai:gpt-4o-mini"
             schema = json.dumps(Plan.model_json_schema(), ensure_ascii=False)
             system = (
@@ -216,7 +246,7 @@ class QueryProcessor:
                 f"{schema}\n"
                 "No expliques nada; solo rellena los campos del Plan."
             )
-            agent = Agent(model=model_name, system_prompt=system, result_type=Plan)
+            agent = Agent(model=model_name, system_prompt=system, result_type=Plan, tools=[list_schema, column_info])
             print("[planner] PydanticAI activado con modelo:", model_name)
             return agent
         except Exception as e:
@@ -365,19 +395,92 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
                     f = dict(f); f["column"] = col; fixed.append(f)
             plan["filters"] = fixed
         return plan
-        
+
+    def validate_and_fix_plan(self, plan: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+        """Autocorrecciones y advertencias para robustez."""
+        warnings: List[str] = []
+        p = dict(plan)
+
+        # Normalizar listas (y quitar duplicados conservando orden)
+        p["dimension"] = list(dict.fromkeys(p.get("dimension", [])))
+        p["metrics"] = list(dict.fromkeys(p.get("metrics", [])))
+
+        # Quitar columnas inexistentes (por si vino del fallback)
+        p = self.canonicalize_plan(p)
+
+        # Limitar límite
+        if p.get("limit") is not None:
+            try:
+                p["limit"] = int(max(1, min(100, int(p["limit"]))))
+            except Exception:
+                p["limit"] = 20
+                warnings.append("`limit` inválido; se fijó en 20.")
+
+        # Métricas numéricas cuando la agregación no es count
+        if p.get("agg_func", "mean") != "count":
+            numeric = set(self.dm.profile.numeric)
+            fixed_metrics = [m for m in p.get("metrics", []) if m in numeric]
+            if not fixed_metrics and p.get("metrics"):
+                warnings.append("Las métricas solicitadas no son numéricas; se cambió a 'count'.")
+                p["agg_func"] = "count"
+            else:
+                p["metrics"] = fixed_metrics
+
+        # chart por defecto si falta
+        if not p.get("chart_type"):
+            if any(d in self.dm.profile.datetime for d in p.get("dimension", [])):
+                p["chart_type"] = "line"
+            elif p.get("intent") in ("top_k","groupby"):
+                p["chart_type"] = "bar"
+
+        # Evitar charts con cardinalidad desmesurada
+        if p.get("chart_type") in ("bar","pie") and p.get("limit") is None:
+            p["limit"] = 20
+
+        return p, warnings
+
+    # ------------------ Filtrado seguro (sin .query dinámico) -----------------
+    def _apply_filter(self, df: pd.DataFrame, col: str, op: str, val: Any) -> pd.DataFrame:
+        if col not in df.columns:
+            return df
+        s = df[col]
+        try:
+            if op == '==':   mask = s == val
+            elif op == '!=': mask = s != val
+            elif op == '>':  mask = s > val
+            elif op == '>=': mask = s >= val
+            elif op == '<':  mask = s < val
+            elif op == '<=': mask = s <= val
+            elif op == 'in':
+                arr = val if isinstance(val, (list, tuple, set)) else [val]
+                mask = s.isin(list(arr))
+            elif op == 'not in':
+                arr = val if isinstance(val, (list, tuple, set)) else [val]
+                mask = ~s.isin(list(arr))
+            elif op == 'contains':
+                mask = s.astype(str).str.contains(str(val), case=False, na=False)
+            elif op == 'startswith':
+                mask = s.astype(str).str.startswith(str(val), na=False)
+            elif op == 'endswith':
+                mask = s.astype(str).str.endswith(str(val), na=False)
+            else:
+                return df
+            return df[mask]
+        except Exception as e:
+            print(f"Error aplicando filtro {col} {op} {val}: {e}")
+            return df
+    # -------------------------------------------------------------------------
+
     def execute_plan(self, plan: Dict[str, Any]) -> pd.DataFrame:
         temp_df = self.dm.final_df.copy()
+
+        # Filtros seguros
         if plan.get("filters"):
             for f in plan["filters"]:
                 col, op, val = self._match_column(f.get("column")), f.get("operator"), f.get("value")
-                if not all([col, op, val is not None]): 
+                if not all([col, op]) or (val is None and op not in ('isnull','notnull')):
                     continue
-                try:
-                    expr = f"`{col}` {op} '{val}'" if isinstance(val, str) and op not in ('in','not in') else f"`{col}` {op} {val}"
-                    temp_df = temp_df.query(expr, engine='python')
-                except Exception as e:
-                    print(f"Error al filtrar: {e}")
+                temp_df = self._apply_filter(temp_df, col, op, val)
         
         dims = [self._match_column(d) for d in plan.get("dimension", []) if self._match_column(d)]
         metrics = [self._match_column(m) for m in plan.get("metrics", []) if self._match_column(m)]
@@ -470,19 +573,31 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
         yield plan.get("message"), gr.update(visible=False)
         return
 
-    # Canonizar columnas antes de ejecutar
+    # Canonizar + validar/autocorregir
     plan = processor.canonicalize_plan(plan)
+    plan, plan_warnings = processor.validate_and_fix_plan(plan)
 
     # Ejecutar plan y resumir
     result_df = processor.execute_plan(plan)
     summary = processor.generate_summary(result_df, message)
 
+    # Agregar notas del plan si hubo correcciones
+    if plan_warnings:
+        summary += "\n\n> **Notas del plan:**\n> " + "\n> ".join(f"- {w}" for w in plan_warnings)
+
+    # Orden natural si dimensión es datetime
+    dims = plan.get("dimension", [])
+    metrics = plan.get("metrics", [])
+    if dims and dims[0] in processor.dm.profile.datetime:
+        try:
+            result_df = result_df.sort_values(by=dims[0])
+        except Exception:
+            pass
+
     # Intentar gráfico dinámico
     fig = None
     try:
         chart_type = (plan.get("chart_type") or "").lower().strip()
-        dims = plan.get("dimension", [])
-        metrics = plan.get("metrics", [])
         if chart_type and result_df is not None and not result_df.empty and dims and metrics:
             x = dims[0]; y = metrics[0]
             if chart_type == "bar":
@@ -494,6 +609,16 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
                 fig = px.scatter(result_df, x=x_scatter, y=y, title=f"Relación {y} vs {x_scatter}")
             elif chart_type == "pie":
                 fig = px.pie(result_df, names=x, values=y, title=f"Distribución de {y} por {x}")
+
+        # Si no hubo figura y hay múltiples métricas, graficar multiserie
+        if fig is None and chart_type in ("bar","line") and len(metrics) > 1 and dims:
+            melted = result_df.melt(id_vars=[dims[0]], value_vars=metrics, var_name="serie", value_name="valor")
+            if chart_type == "bar":
+                fig = px.bar(melted, x=dims[0], y="valor", color="serie", barmode="group",
+                             title=f"Series: {', '.join(metrics)} por {dims[0]}")
+            else:
+                fig = px.line(melted, x=dims[0], y="valor", color="serie", markers=True,
+                              title=f"Series: {', '.join(metrics)} por {dims[0]}")
     except Exception as e:
         print(f"No se pudo generar el gráfico: {e}")
         fig = None
