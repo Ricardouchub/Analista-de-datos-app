@@ -669,7 +669,7 @@ def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
 
     except Exception as e:
         error_message = f"❌ Error: {e}"
-        return None, error_message, "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0), gr.update(visible=False)
+        return None, error_message, "", str(e), None, None, None, None, gr.update(value=None, visible=False), gr.update(selected=0), gr.update(value=None, visible=False)
 
 def chat_response_flow(message: str, history: List[Dict], session_state: SessionState, use_sql: bool):
     t0 = time.perf_counter()
@@ -680,28 +680,28 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
     if session_state:
         session_state.telemetry["last_ts"] = now
     if session_state and (now - last) < 1.0:
-        yield "⏳ Consultas muy seguidas; intenta de nuevo en un instante.", gr.update(visible=False), gr.update(visible=False), "—", "—"
+        yield "⏳ Consultas muy seguidas; intenta de nuevo en un instante.", gr.update(value=None, visible=False), gr.update(value=None, visible=False), "—", "—"
         return
 
     MAX_QUERIES = 20
     if session_state is None or session_state.data_manager is None:
-        yield "Por favor, carga un dataset primero en la pestaña '1. Cargar Datos'.", gr.update(visible=False), gr.update(visible=False), "—", "—"
+        yield "Por favor, carga un dataset primero en la pestaña '1. Cargar Datos'.", gr.update(value=None, visible=False), gr.update(value=None, visible=False), "—", "—"
         return
 
     if session_state.query_count >= MAX_QUERIES:
-        yield f"Alcanzaste el límite de {MAX_QUERIES} consultas. Carga un nuevo dataset.", gr.update(visible=False), gr.update(visible=False), "—", "—"
+        yield f"Alcanzaste el límite de {MAX_QUERIES} consultas. Carga un nuevo dataset.", gr.update(value=None, visible=False), gr.update(value=None, visible=False), "—", "—"
         return
 
     if message in session_state.query_cache:
         # Cache de solo texto; otros elementos se ocultan
         cached = session_state.query_cache[message]
-        yield cached, gr.update(visible=False), gr.update(visible=False), "—", "—"
+        yield cached, gr.update(value=None, visible=False), gr.update(value=None, visible=False), "—", "—"
         return
 
     processor = QueryProcessor(session_state.data_manager)
     plan = processor.parse_question_to_plan(message, history)
     if plan.get("intent") == "error":
-        yield plan.get("message"), gr.update(visible=False), gr.update(visible=False), "—", "—"
+        yield plan.get("message"), gr.update(value=None, visible=False), gr.update(value=None, visible=False), "—", "—"
         return
 
     # Canonizar + validar/autocorregir
@@ -786,15 +786,18 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
     # Cache del texto
     session_state.query_cache[message] = summary
 
+    # ✅ Updates correctos para Plot y SQL
+    fig_update = gr.update(value=fig, visible=True) if fig is not None else gr.update(value=None, visible=False)
+    sql_update = gr.update(value=sql_text, visible=True) if sql_text else gr.update(value="", visible=False)
+
     # Devuelve: texto, figura (o esconder), SQL (o esconder), explicación, telemetría
     yield (
         summary,
-        (fig if fig is not None else gr.update(visible=False)),
-        (sql_text if sql_text else gr.update(visible=False)),
+        fig_update,
+        sql_update,
         explain_md,
         telemetry_md,
     )
-
 
 # ==============================================================================
 # CONSTRUCCIÓN DE LA INTERFAZ (Tab 1 centrado • Tab 2 50/50 full-bleed)
