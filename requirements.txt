@@ -12,7 +12,5 @@ openpyxl>=3.1
 openai>=1.35
 python-dotenv>=1.0
 tabulate>=0.9
-
-# Para el agente tipado del plan
 pydantic>=2.6,<3
 pydantic-ai[openai]>=0.0.16
