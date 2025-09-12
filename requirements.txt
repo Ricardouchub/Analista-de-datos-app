@@ -14,3 +14,4 @@ python-dotenv>=1.0
 tabulate>=0.9
 pydantic>=2.6,<3
 pydantic-ai[openai]>=0.0.16
+duckdb>=1.0
