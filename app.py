@@ -5,7 +5,7 @@ import os
 import re
 import json
 import tempfile
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Literal
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -14,7 +14,7 @@ import plotly.express as px
 import gradio as gr
 import faiss
 from sentence_transformers import SentenceTransformer
-from rapidfuzz import fuzz, process
+from rapidfuzz import process
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -23,6 +23,15 @@ load_dotenv()
 # --- Compatibilidad v4/v5 para alturas de DataFrame ---
 IS_V5 = int(gr.__version__.split(".", 1)[0]) >= 5
 DF_H = "max_height" if IS_V5 else "height"
+
+# --- Soporte opcional para Pydantic y PydanticAI ---
+try:
+    from pydantic import BaseModel, Field
+    HAS_PYDANTIC = True
+except Exception:
+    BaseModel = object  # stub
+    Field = lambda *a, **k: None
+    HAS_PYDANTIC = False
 
 # ==============================================================================
 # 0. CONFIGURACIÓN Y CLASES DE ESTADO
@@ -146,7 +155,11 @@ class DataManager:
         if self.final_df is None: return {}
         self._log("Generando reporte EDA técnico...")
         miss = self.final_df.isna().mean().mul(100).round(2).rename("missing_pct")
-        profile_df = pd.concat([self.final_df.dtypes.astype(str).rename("dtype"), miss, self.final_df.nunique().rename("unique_cnt")], axis=1).reset_index()
+        profile_df = pd.concat([
+            self.final_df.dtypes.astype(str).rename("dtype"),
+            miss,
+            self.final_df.nunique().rename("unique_cnt")
+        ], axis=1).reset_index()
         corr_fig = None
         if len(self.profile.numeric) > 1:
             corr = self.final_df[self.profile.numeric].corr(numeric_only=True)
@@ -154,24 +167,86 @@ class DataManager:
         self._log("✅ Reporte EDA técnico generado.")
         return {"profile_df": profile_df, "corr_fig": corr_fig}
 
+# ----------------------------- Pydantic Models -------------------------------
+if HAS_PYDANTIC:
+    class Filter(BaseModel):
+        column: str
+        operator: Literal['==','!=','>','>=','<','<=','in','not in','contains','startswith','endswith'] = '=='
+        value: Any
+
+    class Plan(BaseModel):
+        intent: Literal['top_k','trend','groupby','filter','describe','error'] = 'top_k'
+        dimension: List[str] = Field(default_factory=list)
+        metrics: List[str] = Field(default_factory=list)
+        agg_func: Literal['sum','mean','count','min','max','median'] = 'mean'
+        sort_by: Optional[str] = None
+        sort_order: Literal['ascending','descending'] = 'ascending'
+        limit: Optional[int] = None
+        filters: List[Filter] = Field(default_factory=list)
+        chart_type: Optional[Literal['bar','line','scatter','pie']] = None
+else:
+    Filter = None
+    Plan = None
+# ---------------------------------------------------------------------------
+
 class QueryProcessor:
     def __init__(self, data_manager: DataManager):
         self.dm = data_manager
         self.client = ResourceManager.get_deepseek_client()
+        self.planner_agent = self._build_planner_agent()
+
+    # --------------------- PydanticAI Agent builder -------------------------
+    def _build_planner_agent(self):
+        """Crea el agente tipado si hay dependencias; si no, devuelve None."""
+        if not HAS_PYDANTIC or Plan is None:
+            print("[planner] Pydantic no disponible: usaré fallback a parser JSON.")
+            return None
+        try:
+            # Permite usar DeepSeek con interfaz OpenAI si no hay OPENAI_API_KEY
+            if os.getenv("OPENAI_API_KEY", "") == "" and os.getenv("DEEPSEEK_API_KEY", ""):
+                os.environ.setdefault("OPENAI_API_KEY", os.getenv("DEEPSEEK_API_KEY"))
+                os.environ.setdefault("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+
+            from pydantic_ai import Agent  # import aquí para no romper si no está instalado
+            model_name = os.getenv("PLANNER_MODEL", "openai:deepseek-chat")  # o "openai:gpt-4o-mini"
+            schema = json.dumps(Plan.model_json_schema(), ensure_ascii=False)
+            system = (
+                "Eres un planificador de consultas de datos. "
+                "Devuelve EXCLUSIVAMENTE un objeto JSON que cumpla este esquema:\n"
+                f"{schema}\n"
+                "No expliques nada; solo rellena los campos del Plan."
+            )
+            agent = Agent(model=model_name, system_prompt=system, result_type=Plan)
+            print("[planner] PydanticAI activado con modelo:", model_name)
+            return agent
+        except Exception as e:
+            print(f"[planner] deshabilitado -> {e}")
+            return None
+    # -----------------------------------------------------------------------
 
     def _get_api_completion(self, messages: List[Dict], temperature: float = 0.0) -> str:
         try:
-            completion = self.client.chat.completions.create(model="deepseek-chat", messages=messages, temperature=temperature)
+            completion = self.client.chat.completions.create(
+                model="deepseek-chat", messages=messages, temperature=temperature
+            )
             return completion.choices[0].message.content
         except Exception as e:
-            return f'{"{"}"intent": "error", "message": "Error en la API: %s"{"}"}' % e
+            return f'{{"intent": "error", "message": "Error en la API: {e}"}}'
 
     def generate_intelligent_eda(self) -> str:
         self.dm._log("Generando EDA inteligente con IA...")
-        profile_info = f"Columnas numéricas: {self.dm.profile.numeric}\nColumnas categóricas: {self.dm.profile.categorical}\nColumnas de fecha: {self.dm.profile.datetime}"
+        profile_info = (
+            f"Columnas numéricas: {self.dm.profile.numeric}\n"
+            f"Columnas categóricas: {self.dm.profile.categorical}\n"
+            f"Columnas de fecha: {self.dm.profile.datetime}"
+        )
         preview_table = self.dm.final_df.head(3).to_markdown()
 
-        system_message = {"role": "system", "content": "Eres un analista de datos senior. Tu tarea es realizar un análisis exploratorio inicial (EDA) conciso y útil basado en el esquema y una vista previa de los datos. Responde en formato Markdown."}
+        system_message = {"role": "system", "content":
+            "Eres un analista de datos senior. Tu tarea es realizar un análisis exploratorio "
+            "inicial (EDA) conciso y útil basado en el esquema y una vista previa de los datos. "
+            "Responde en formato Markdown."
+        }
         user_message_content = f"""
 Aquí está el perfil de un nuevo dataset:
 {profile_info}
@@ -180,10 +255,10 @@ Y una pequeña vista previa:
 {preview_table}
 
 Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
-1.  **Descripción General**: ¿De qué parecen tratar los datos?
-2.  **Columnas Clave**: ¿Cuáles parecen ser las columnas más importantes para el análisis?
-3.  **Sugerencias de Análisis**: Basado en las columnas, ¿qué 2 o 3 preguntas interesantes podrías hacerle a estos datos?
-4.  **Calidad de Datos**: ¿Observas algo evidente (ej. valores nulos en la vista previa) que merezca ser mencionado?
+1. **Descripción General**: ¿De qué parecen tratar los datos?
+2. **Columnas Clave**: ¿Cuáles parecen ser las columnas más importantes para el análisis?
+3. **Sugerencias de Análisis**: Basado en las columnas, ¿qué 2 o 3 preguntas interesantes podrías hacerle a estos datos?
+4. **Calidad de Datos**: ¿Observas algo evidente (ej. valores nulos en la vista previa) que merezca ser mencionado?
 """
         user_message = {"role": "user", "content": user_message_content}
         eda_analysis = self._get_api_completion([system_message, user_message], temperature=0.5)
@@ -209,82 +284,98 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         return f"{ex1}\n{ex2}"
         
     def parse_question_to_plan(self, question: str, chat_history: List[Dict]) -> Dict[str, Any]:
-        # Construir contexto con roles claros y sin "Vista Previa" larga
+        # Contexto con roles claros y sin vistas previas largas
         history_context = ""
         if chat_history:
-            for turn in chat_history[-2:]:  # últimos 2 turnos
+            for turn in chat_history[-2:]:
                 role = "Usuario" if turn.get("role") == "user" else "Asistente"
                 content = turn.get("content", "")
-                summary = content.split("\n\n**Vista Previa")[0]  # recorta tablas largas
+                summary = content.split("\n\n**Vista Previa")[0]
                 history_context += f"{role}: {summary}\n"
 
-        system_message = {
-        "role": "system",
-        "content": (
-            "Tu única función es traducir la pregunta a un JSON válido. "
-            "No escribas nada más. Tu respuesta DEBE empezar con `{` y terminar con `}`.\n"
-            "El JSON puede incluir: intent, dimension, metrics, agg_func, sort_by, sort_order, "
-            "limit, filters, chart_type. Valores de chart_type válidos: bar, line, scatter, pie."
-            )
-        }
-
+        examples = self._generate_dynamic_examples()
         user_message_content = (
             f"Contexto de la conversación anterior:\n{history_context}\n---\n"
-            f"Basado en el contexto y la nueva pregunta, crea un plan JSON.\n"
-            f"Esquema: num_cols={self.dm.profile.numeric}, "
-            f"cat_cols={self.dm.profile.categorical}, date_cols={self.dm.profile.datetime}\n"
-            f"Ejemplos:\n{self._generate_dynamic_examples()}\n"
-            f"Mi Nueva Pregunta: \"{question}\""
+            f"Esquema de columnas: num={self.dm.profile.numeric}, "
+            f"cat={self.dm.profile.categorical}, date={self.dm.profile.datetime}\n"
+            f"Ejemplos de salida:\n{examples}\n"
+            f"Pregunta nueva: \"{question}\"\n"
+            "Construye un Plan válido (ver esquema del sistema)."
         )
 
+        # 1) Intento tipado con PydanticAI
+        if self.planner_agent is not None:
+            try:
+                result = self.planner_agent.run_sync(user_message_content)
+                plan_obj = result.data  # Plan ya validado
+                return plan_obj.model_dump()
+            except Exception as e:
+                print(f"[planner:typed] fallo -> {e}")
+
+        # 2) Fallback a parser JSON tradicional
+        system_message = {"role": "system", "content":
+            "Tu única función es traducir la pregunta a un JSON válido. "
+            "No escribas nada más. Tu respuesta DEBE empezar con `{` y terminar con `}`."
+        }
         user_message = {"role": "user", "content": user_message_content}
         json_str = self._get_api_completion([system_message, user_message])
-
         try:
             return json.loads(re.search(r'\{.*\}', json_str, re.DOTALL).group(0))
         except Exception:
             return {"intent": "error", "message": "No pude interpretar la pregunta."}
     
+    # ------------ Matching híbrido de columnas (léxico + semántico) ----------
     def _match_column(self, term: str) -> Optional[str]:
         if not term or not isinstance(term, str):
             return None
         if term in self.dm.profile.all_cols:
             return term
 
-    # Léxico (rapidfuzz)
+        # Léxico
         lexical_match, lexical_score, _ = process.extractOne(term, self.dm.profile.all_cols)
 
-    # Semántico (FAISS)
+        # Semántico con FAISS
         try:
             embedder = ResourceManager.get_embedder()
             q_emb = embedder.encode([term], normalize_embeddings=True).astype("float32")
             distances, indices = self.dm.col_index.search(q_emb, 1)
             semantic_match = self.dm.profile.all_cols[int(indices[0][0])]
-            # faiss IndexFlatIP devuelve similitud coseno (porque normalizamos), en [-1,1]
-            sim = float(distances[0][0])
-            semantic_score = max(0.0, min(1.0, (sim + 1) / 2.0)) * 100  # a 0..100
+            sim = float(distances[0][0])             # coseno en [-1, 1]
+            semantic_score = max(0.0, min(1.0, (sim + 1) / 2.0)) * 100  # 0..100
         except Exception:
             semantic_match, semantic_score = lexical_match, 0.0
 
-        # Selección
-        # alta confianza en cualquiera de los dos → devolver el mejor
         if lexical_score >= 85 or semantic_score >= 85:
             return lexical_match if lexical_score >= semantic_score else semantic_match
-
-    # si ambos bajos, devolvemos el mejor léxico como fallback
         return lexical_match
+    # -------------------------------------------------------------------------
+
+    def canonicalize_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        """Resuelve columnas a nombres reales y filtra inválidas."""
+        plan = dict(plan)
+        plan["dimension"] = [self._match_column(d) for d in plan.get("dimension", []) if self._match_column(d)]
+        plan["metrics"]  = [self._match_column(m) for m in plan.get("metrics", []) if self._match_column(m)]
+        if plan.get("sort_by"):
+            plan["sort_by"] = self._match_column(plan["sort_by"])
+        if plan.get("filters"):
+            fixed = []
+            for f in plan["filters"]:
+                col = self._match_column(f.get("column"))
+                if col:
+                    f = dict(f); f["column"] = col; fixed.append(f)
+            plan["filters"] = fixed
+        return plan
         
     def execute_plan(self, plan: Dict[str, Any]) -> pd.DataFrame:
         temp_df = self.dm.final_df.copy()
         if plan.get("filters"):
             for f in plan["filters"]:
                 col, op, val = self._match_column(f.get("column")), f.get("operator"), f.get("value")
-                if not all([col, op, val is not None]): continue
+                if not all([col, op, val is not None]): 
+                    continue
                 try:
-                    temp_df = temp_df.query(
-                        f"`{col}` {op} '{val}'" if isinstance(val, str) else f"`{col}` {op} {val}",
-                        engine='python'
-                    )
+                    expr = f"`{col}` {op} '{val}'" if isinstance(val, str) and op not in ('in','not in') else f"`{col}` {op} {val}"
+                    temp_df = temp_df.query(expr, engine='python')
                 except Exception as e:
                     print(f"Error al filtrar: {e}")
         
@@ -297,14 +388,20 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         
         sort_col = self._match_column(plan.get("sort_by")) or (metrics[0] if metrics else None)
         if sort_col and sort_col in temp_df.columns:
-            temp_df = temp_df.sort_values(by=sort_col, ascending=(plan.get("sort_order", "a") == "a"))
+            temp_df = temp_df.sort_values(by=sort_col, ascending=(plan.get("sort_order", "ascending") == "ascending"))
         
-        if plan.get("limit"): temp_df = temp_df.head(int(plan["limit"]))
+        if plan.get("limit"): 
+            temp_df = temp_df.head(int(plan["limit"]))
         return temp_df
 
     def generate_summary(self, result_df: pd.DataFrame, question: str) -> str:
-        messages = [{"role": "system", "content": "Explica resultados de forma clara y concisa en español."},
-                    {"role": "user", "content": f'Basado en mi pregunta y estos datos, redacta una respuesta breve.\nPregunta: "{question}"\nDatos:\n{result_df.head(5).to_markdown(index=False)}'}]
+        messages = [
+            {"role": "system", "content": "Explica resultados de forma clara y concisa en español."},
+            {"role": "user", "content":
+                f'Basado en mi pregunta y estos datos, redacta una respuesta breve.\n'
+                f'Pregunta: "{question}"\nDatos:\n{result_df.head(5).to_markdown(index=False)}'
+            }
+        ]
         return self._get_api_completion(messages)
 
 # ==============================================================================
@@ -373,6 +470,9 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
         yield plan.get("message"), gr.update(visible=False)
         return
 
+    # Canonizar columnas antes de ejecutar
+    plan = processor.canonicalize_plan(plan)
+
     # Ejecutar plan y resumir
     result_df = processor.execute_plan(plan)
     summary = processor.generate_summary(result_df, message)
@@ -381,9 +481,8 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
     fig = None
     try:
         chart_type = (plan.get("chart_type") or "").lower().strip()
-        dims = [processor._match_column(d) for d in plan.get("dimension", []) if processor._match_column(d)]
-        metrics = [processor._match_column(m) for m in plan.get("metrics", []) if processor._match_column(m)]
-
+        dims = plan.get("dimension", [])
+        metrics = plan.get("metrics", [])
         if chart_type and result_df is not None and not result_df.empty and dims and metrics:
             x = dims[0]; y = metrics[0]
             if chart_type == "bar":
@@ -416,6 +515,74 @@ custom_css = """
 /* Fuente e higiene visual */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root { --radius-lg: 14px; }
+
+/* Quitar fondos grises y bordes de bloques por defecto */
+.gradio-container, :root {
+  --block-background-fill: transparent !important;
+  --block-border-color: transparent !important;
+  --block-label-background-fill: transparent !important;
+  --block-title-background-fill: transparent !important;
+}
+.gradio-container .gr-markdown,
+.gradio-container .label,
+.gradio-container .form {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Wrapper centrado para la cabecera y Tab 1 */
+#app-center { 
+  max-width: 1100px; 
+  margin: 0 auto !important; 
+  padding: 8px 16px 24px;
+}
+
+/* Header */
+.app-header { 
+  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 60%, #9333ea 100%);
+  color: white; border-radius: 16px; padding: 20px 24px; box-shadow: 0 8px 28px rgba(99,102,241,0.25);
+}
+.app-header h1 { margin: 0 0 6px 0; font-weight: 700; letter-spacing: -0.015em; }
+.app-header p { margin: 0; opacity: 0.95; }
+
+/* Tarjetas */
+.card { 
+  background: #ffffff; border-radius: var(--radius-lg);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  padding: 18px; border: 1px solid #eef2f7;
+}
+.dark .card { background: #0b1220; border-color: #1f2937; }
+
+/* Botones */
+.gr-button { border-radius: 10px !important; }
+
+/* Tab 2: contenedor full-bleed que ocupa todo el ancho de la ventana */
+#tab2-bleed { 
+  width: 100vw; 
+  margin-left: calc(50% - 50vw); 
+  padding: 0 20px 24px; 
+}
+
+/* Tab 2: dos columnas 50/50 */
+#two-col { 
+  display: grid !important; 
+  grid-template-columns: 1fr 1fr; 
+  gap: 16px; 
+}
+
+/* Alturas cómodas */
+#analysis-card, #chat-card { min-height: 72vh; }
+
+/* Chat: input abajo, historial crece */
+#chat-card { display: flex; flex-direction: column; }
+#chat-card > .gr-block { display: flex; flex-direction: column; height: 100%; }
+#chat-card .gr-chat-interface { display: flex; flex-direction: column; height: 100%; }
+#chat-card .gr-chatbot { flex: 1 1 auto; min-height: 0; }
+#chat-card form { margin-top: auto; padding-top: 8px; }
+
+/* Título de la sección de gráficos */
+#viz-title { margin-bottom: 6px; opacity: .9; }
 """
 
 with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_css) as demo:
@@ -425,7 +592,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
             """
             <div class="app-header">
               <h1>🤖 Analista de Datos IA</h1>
-              <p>Sube tus datos > Haz preguntas en lenguaje natural > Obtén análisis claros y visuales</p>
+              <p>Sube tus datos • Haz preguntas en lenguaje natural • Obtén análisis claros y visuales</p>
             </div>
             """
         )
@@ -494,13 +661,11 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
                                 gr.ChatInterface(
                                     fn=chat_response_flow,
                                     additional_inputs=[app_state],
-                                    additional_outputs=[chat_plot],  # <- conectamos el Plot
+                                    additional_outputs=[chat_plot],  # conectamos el Plot
                                     title=None,
                                     description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
                                     type="messages",
                                 )
-
-
 
     # Acción del botón (mapeo de outputs conservado)
     build_btn.click(
