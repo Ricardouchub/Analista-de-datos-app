@@ -4,6 +4,9 @@
 import os
 import re
 import json
+import time
+import duckdb
+from textwrap import dedent
 import tempfile
 from typing import List, Tuple, Dict, Any, Optional, Literal
 from dataclasses import dataclass, field
@@ -43,9 +46,13 @@ class SessionState:
     data_manager: Optional['DataManager'] = None
     query_count: int = 0
     query_cache: Dict[str, Any] = field(default_factory=dict)
+    telemetry: Dict[str, Any] = field(default_factory=lambda: {
+        "total_queries": 0, "last_latency": 0.0, "last_rows_in": 0, "last_rows_out": 0, "last_ts": 0.0
+    })
     
     def increment_query_count(self):
         self.query_count += 1
+        self.telemetry["total_queries"] += 1
 
 class ResourceManager:
     _embedder = None
@@ -421,7 +428,7 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
             numeric = set(self.dm.profile.numeric)
             fixed_metrics = [m for m in p.get("metrics", []) if m in numeric]
             if not fixed_metrics and p.get("metrics"):
-                warnings.append("Las métricas solicitadas no son numéricas; se cambió a 'count'.")
+                warnings.append("Las métrricas solicitadas no son numéricas; se cambió a 'count'.")
                 p["agg_func"] = "count"
             else:
                 p["metrics"] = fixed_metrics
@@ -507,6 +514,110 @@ Por favor, proporciona un resumen ejecutivo en 3-4 puntos clave. Enfócate en:
         ]
         return self._get_api_completion(messages)
 
+    # =================== SQL helpers (DuckDB) ====================
+    def _sql_ident(self, name: str) -> str:
+        return '"' + str(name).replace('"', '""') + '"'
+
+    def _sql_lit(self, val: Any) -> str:
+        if val is None:
+            return "NULL"
+        if isinstance(val, str):
+            return "'" + val.replace("'", "''") + "'"
+        return str(val)
+
+    def plan_to_sql(self, plan: Dict[str, Any]) -> str:
+        dims = plan.get("dimension", []) or []
+        mets = plan.get("metrics", []) or []
+        agg = plan.get("agg_func", "mean")
+        agg_map = {"mean": "avg", "sum": "sum", "count": "count", "min": "min", "max": "max", "median": "median"}
+
+        selects = [self._sql_ident(d) for d in dims]
+        if mets:
+            selects += [f"{agg_map.get(agg, agg)}({self._sql_ident(m)}) AS {self._sql_ident(m)}" for m in mets]
+        if not selects:
+            selects = ["*"]
+
+        sql = f"SELECT {', '.join(selects)} FROM df"
+        wh = []
+        for f in plan.get("filters", []) or []:
+            col = self._sql_ident(f.get("column"))
+            op  = f.get("operator")
+            val = f.get("value")
+            if op in ("==","!=",">",">=","<","<="):
+                sqlop = "=" if op == "==" else op
+                wh.append(f"{col} {sqlop} {self._sql_lit(val)}")
+            elif op == "in":
+                arr = val if isinstance(val, (list, tuple, set)) else [val]
+                wh.append(f"{col} IN ({', '.join(self._sql_lit(a) for a in arr)})")
+            elif op == "not in":
+                arr = val if isinstance(val, (list, tuple, set)) else [val]
+                wh.append(f"{col} NOT IN ({', '.join(self._sql_lit(a) for a in arr)})")
+            elif op == "contains":
+                wh.append(f"LOWER(CAST({col} AS TEXT)) LIKE '%' || LOWER({self._sql_lit(val)}) || '%'")
+            elif op == "startswith":
+                wh.append(f"LOWER(CAST({col} AS TEXT)) LIKE LOWER({self._sql_lit(val)}) || '%'")
+            elif op == "endswith":
+                wh.append(f"LOWER(CAST({col} AS TEXT)) LIKE '%' || LOWER({self._sql_lit(val)})")
+        if wh:
+            sql += " WHERE " + " AND ".join(wh)
+
+        if dims and mets:
+            sql += " GROUP BY " + ", ".join(self._sql_ident(d) for d in dims)
+
+        if plan.get("sort_by"):
+            asc = "ASC" if plan.get("sort_order", "ascending") == "ascending" else "DESC"
+            sql += f" ORDER BY {self._sql_ident(plan['sort_by'])} {asc}"
+
+        if plan.get("limit"):
+            sql += f" LIMIT {int(plan['limit'])}"
+        return sql
+
+    def run_duckdb(self, df: pd.DataFrame, sql: str) -> pd.DataFrame:
+        con = duckdb.connect()
+        try:
+            con.register("df", df)
+            return con.execute(sql).df()
+        finally:
+            con.close()
+
+    def explain_plan(self, plan: Dict[str, Any]) -> str:
+        parts = []
+        if plan.get("dimension"): parts.append(f"**Agrupar por:** {', '.join(plan['dimension'])}")
+        if plan.get("metrics"):   parts.append(f"**Métricas:** {', '.join(plan['metrics'])} (agg: {plan.get('agg_func','mean')})")
+        if plan.get("filters"):
+            fl = [f"{f['column']} {f['operator']} {f['value']}" for f in plan['filters']]
+            parts.append("**Filtros:** " + "; ".join(fl))
+        if plan.get("sort_by"):  parts.append(f"**Orden:** {plan['sort_by']} ({plan.get('sort_order','ascending')})")
+        if plan.get("limit"):    parts.append(f"**Límite:** {plan['limit']}")
+        return " \n".join(parts) if parts else "Plan simple (sin filtros ni agregaciones)."
+
+# ==============================================================================
+# UTILIDAD: Data Card (Markdown)
+# ==============================================================================
+def build_data_card_markdown(dm: 'DataManager', intelligent_eda: str, eda_results: Dict[str, Any]) -> str:
+    prof = eda_results.get("profile_df", pd.DataFrame())
+    head_md = dm.final_df.head(8).to_markdown(index=False)
+    prof_md = prof.head(50).to_markdown(index=False) if not prof.empty else "_Sin perfil_"
+    return dedent(f"""
+    # 📄 Data Card
+
+    ## Resumen Ejecutivo (IA)
+    {intelligent_eda}
+
+    ## Esquema
+    - **Numéricas:** {', '.join(dm.profile.numeric) or '—'}
+    - **Categóricas:** {', '.join(dm.profile.categorical) or '—'}
+    - **Fecha:** {', '.join(dm.profile.datetime) or '—'}
+
+    ## Muestra (primeras 8 filas)
+    {head_md}
+
+    ## Perfil de Columnas (resumen)
+    {prof_md}
+
+    _Generado automáticamente por Analista de Datos IA._
+    """).strip()
+
 # ==============================================================================
 # LÓGICA DE LA INTERFAZ (Flujos y funciones de UI)
 # ==============================================================================
@@ -542,46 +653,78 @@ def build_dataset_flow(files, progress=gr.Progress(track_tqdm=True)):
         summary_text = f"✅ **Dataset listo:** Tabla de **{rows} filas** y **{cols} columnas**."
         
         session_state = SessionState(data_manager=dm)
+
+        # Data Card (Markdown)
+        data_card_md = build_data_card_markdown(dm, intelligent_eda, eda_results)
+        data_card_path = "/tmp/data_card.md"
+        with open(data_card_path, "w", encoding="utf-8") as f:
+            f.write(data_card_md)
         
         progress(1, desc="¡Análisis completado!")
         
         return (session_state, "Análisis completado.", summary_text, "\n".join(dm.system_log),
                 dm.final_df.head(10), eda_results.get("profile_df", pd.DataFrame()), eda_results.get("corr_fig"),
-                intelligent_eda, gr.update(visible=True), gr.update(selected=1))
+                intelligent_eda, gr.update(visible=True), gr.update(selected=1),
+                gr.update(value=data_card_path, visible=True))
 
     except Exception as e:
         error_message = f"❌ Error: {e}"
-        return None, error_message, "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0)
+        return None, error_message, "", str(e), None, None, None, None, gr.update(visible=False), gr.update(selected=0), gr.update(visible=False)
 
-def chat_response_flow(message: str, history: List[Dict], session_state: SessionState):
+def chat_response_flow(message: str, history: List[Dict], session_state: SessionState, use_sql: bool):
+    t0 = time.perf_counter()
+
+    # Cooldown simple (anti-spam)
+    now = time.time()
+    last = session_state.telemetry.get("last_ts", 0.0) if session_state else 0.0
+    if session_state:
+        session_state.telemetry["last_ts"] = now
+    if session_state and (now - last) < 1.0:
+        yield "⏳ Consultas muy seguidas; intenta de nuevo en un instante.", gr.update(visible=False), gr.update(visible=False), "—", "—"
+        return
+
     MAX_QUERIES = 20
     if session_state is None or session_state.data_manager is None:
-        yield "Por favor, carga un dataset primero en la pestaña '1. Cargar Datos'.", gr.update(visible=False)
+        yield "Por favor, carga un dataset primero en la pestaña '1. Cargar Datos'.", gr.update(visible=False), gr.update(visible=False), "—", "—"
         return
 
     if session_state.query_count >= MAX_QUERIES:
-        yield f"Alcanzaste el límite de {MAX_QUERIES} consultas. Carga un nuevo dataset.", gr.update(visible=False)
+        yield f"Alcanzaste el límite de {MAX_QUERIES} consultas. Carga un nuevo dataset.", gr.update(visible=False), gr.update(visible=False), "—", "—"
         return
 
     if message in session_state.query_cache:
-        yield session_state.query_cache[message], gr.update(visible=False)
+        # Cache de solo texto; otros elementos se ocultan
+        cached = session_state.query_cache[message]
+        yield cached, gr.update(visible=False), gr.update(visible=False), "—", "—"
         return
 
     processor = QueryProcessor(session_state.data_manager)
     plan = processor.parse_question_to_plan(message, history)
     if plan.get("intent") == "error":
-        yield plan.get("message"), gr.update(visible=False)
+        yield plan.get("message"), gr.update(visible=False), gr.update(visible=False), "—", "—"
         return
 
     # Canonizar + validar/autocorregir
     plan = processor.canonicalize_plan(plan)
     plan, plan_warnings = processor.validate_and_fix_plan(plan)
 
-    # Ejecutar plan y resumir
-    result_df = processor.execute_plan(plan)
+    # Ejecutar plan (SQL si toggle activo y el plan amerita)
+    sql_text = None
+    try:
+        if use_sql and plan.get("dimension") and (plan.get("metrics") or plan.get("agg_func") == "count"):
+            sql_text = processor.plan_to_sql(plan)
+            result_df = processor.run_duckdb(session_state.data_manager.final_df, sql_text)
+        else:
+            result_df = processor.execute_plan(plan)
+    except Exception as e:
+        # Si falla SQL, caer a pandas
+        print(f"[SQL] fallo -> {e}")
+        result_df = processor.execute_plan(plan)
+        sql_text = None
+
     summary = processor.generate_summary(result_df, message)
 
-    # Agregar notas del plan si hubo correcciones
+    # Notas del plan si hubo correcciones
     if plan_warnings:
         summary += "\n\n> **Notas del plan:**\n> " + "\n> ".join(f"- {w}" for w in plan_warnings)
 
@@ -610,27 +753,47 @@ def chat_response_flow(message: str, history: List[Dict], session_state: Session
             elif chart_type == "pie":
                 fig = px.pie(result_df, names=x, values=y, title=f"Distribución de {y} por {x}")
 
-        # Si no hubo figura y hay múltiples métricas, graficar multiserie
+        # Gráfico multiserie si hay >1 métrica
         if fig is None and chart_type in ("bar","line") and len(metrics) > 1 and dims:
             melted = result_df.melt(id_vars=[dims[0]], value_vars=metrics, var_name="serie", value_name="valor")
             if chart_type == "bar":
                 fig = px.bar(melted, x=dims[0], y="valor", color="serie", barmode="group",
                              title=f"Series: {', '.join(metrics)} por {dims[0]}")
-            else:
+            elif chart_type == "line":
                 fig = px.line(melted, x=dims[0], y="valor", color="serie", markers=True,
                               title=f"Series: {', '.join(metrics)} por {dims[0]}")
     except Exception as e:
         print(f"No se pudo generar el gráfico: {e}")
         fig = None
 
+    # Telemetría
+    dt = time.perf_counter() - t0
     session_state.increment_query_count()
+    session_state.telemetry.update({
+        "last_latency": dt,
+        "last_rows_in": len(session_state.data_manager.final_df),
+        "last_rows_out": (0 if result_df is None else len(result_df))
+    })
+    telemetry_md = (
+        f"**Consultas totales:** {session_state.telemetry['total_queries']}  \n"
+        f"**Latencia última:** {dt:.2f}s  \n"
+        f"**Filas (in→out):** {session_state.telemetry['last_rows_in']} → {session_state.telemetry['last_rows_out']}"
+    )
+
+    # Explicación del plan
+    explain_md = processor.explain_plan(plan)
+
+    # Cache del texto
     session_state.query_cache[message] = summary
 
-    # Mostrar gráfico si existe, si no ocultarlo (sin dejar hueco)
-    if fig is not None:
-        yield summary, gr.update(value=fig, visible=True)
-    else:
-        yield summary, gr.update(visible=False)
+    # Devuelve: texto, figura (o esconder), SQL (o esconder), explicación, telemetría
+    yield (
+        summary,
+        (fig if fig is not None else gr.update(visible=False)),
+        (sql_text if sql_text else gr.update(visible=False)),
+        explain_md,
+        telemetry_md,
+    )
 
 
 # ==============================================================================
@@ -740,6 +903,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
                             file_types=[".csv", ".xlsx", ".xls"]
                         )
                         build_btn = gr.Button("Construir y Analizar", variant="primary")
+                        # Botón de descarga del Data Card
+                        download_card_btn = gr.DownloadButton(label="📄 Exportar Data Card (Markdown)", visible=False)
 
             # --- Tab 2: Panel de Datos (IZQ) + Chat (DER) 50/50 full-bleed ---
             with gr.TabItem("2. Chat Interactivo", id=1):
@@ -773,6 +938,12 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
                                 # El gráfico inicia oculto; se mostrará cuando haya figura
                                 chat_plot = gr.Plot(label=None, show_label=False, visible=False)
 
+                                # Controles extra del chat
+                                use_sql_toggle = gr.Checkbox(label="Ejecutar con DuckDB (SQL)", value=False)
+                                sql_code = gr.Code(label="SQL generado", visible=False)
+                                explain_box = gr.Markdown(visible=True)
+                                telemetry_box = gr.Markdown(visible=True)
+
                                 # Título del chat (debajo de la visualización)
                                 gr.Markdown("### 💬 Conversa con tus datos")
 
@@ -785,14 +956,14 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
 
                                 gr.ChatInterface(
                                     fn=chat_response_flow,
-                                    additional_inputs=[app_state],
-                                    additional_outputs=[chat_plot],  # conectamos el Plot
+                                    additional_inputs=[app_state, use_sql_toggle],
+                                    additional_outputs=[chat_plot, sql_code, explain_box, telemetry_box],
                                     title=None,
                                     description="Ejemplos: " + " · ".join([f"*{e}*" for e in examples]),
                                     type="messages",
                                 )
 
-    # Acción del botón (mapeo de outputs conservado)
+    # Acción del botón (mapeo de outputs conservado + Data Card)
     build_btn.click(
         fn=build_dataset_flow,
         inputs=[files],
@@ -806,7 +977,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Analista de Datos IA", css=custom_
             corr_plot,               # correlaciones
             intelligent_eda_output,  # EDA IA
             tabs,                    # mostrar pestañas
-            tabs                     # enfocar Tab 2
+            tabs,                    # enfocar Tab 2
+            download_card_btn        # Data Card (download)
         ]
     )
 
