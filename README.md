@@ -31,11 +31,11 @@ Este proyecto es un potente **Analista de Datos IA** que permite conversar con t
 ## Características Principales
 
 - **Múltiples archivos**: Soporte para uno o más archivos CSV/Excel.
-- **Joins automáticos**: Al subir múltiples archivos, la app detecta claves comunes y sugiere uniones.
-- **EDA inteligente y Data Card descargable**: Genera un resumen ejecutivo de los datos (EDA) apenas los subes y permite exportar un **informe completo en Markdown**.
+- **Joins automáticos**: Al subir múltiples archivos, la app detecta primary keys y sugiere uniones.
+- **EDA inteligente y Data Card descargable**: Genera un resumen de los datos (EDA) apenas los subes y permite exportar un **informe completo en Markdown**.
 - **Motor de ejecución dual (Pandas/SQL)**: Convierte preguntas en un plan de ejecución JSON (o un plan tipado con PydanticAI) que se ejecuta con **Pandas** por defecto o con **DuckDB (SQL)** activando un simple *toggle*.
 - **Memoria conversacional**: Recuerda el contexto de las últimas preguntas para un análisis más fluido.
-- **Búsqueda semántica de columnas**: Entiende el contexto de tu pregunta aunque no uses el nombre exacto de la columna, gracias a un sistema híbrido de **Sentence-Transformers (FAISS) y RapidFuzz**.
+- **Búsqueda semántica de columnas**: Entiende el contexto de tu pregunta aunque no se use el nombre exacto de la columna, gracias a un sistema híbrido de **Sentence-Transformers (FAISS) y RapidFuzz**.
 - **Visualización dinámica**: Genera gráficos (barras, líneas, scatter, etc.) con Plotly cuando la pregunta lo amerita.
 - **Estabilidad y telemetría**: Incluye caché de consultas, límites de uso por sesión, contador de latencia y cooldown anti-spam.
 
@@ -60,14 +60,14 @@ Este proyecto es un potente **Analista de Datos IA** que permite conversar con t
 
 ---
 
-## Stack Tecnológico
+## Stack
 
 - **Interfaz**: Gradio
 - **Backend y Manipulación de Datos**: Python, Pandas
 - **Motor SQL (Opcional)**: DuckDB
 - **Visualización**: Plotly
-- **IA (LLM)**: DeepSeek (vía API compatible con OpenAI)
-- **Agente**: PydanticAI con fallback a JSON
+- **IA (LLM)**: DeepSeek
+- **Agente**: PydanticAI 
 - **Embeddings y Búsqueda Vectorial**: Sentence-Transformers y FAISS
 
 ---
