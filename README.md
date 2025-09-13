@@ -18,7 +18,7 @@
 Este proyecto es un potente **Analista de Datos IA** que permite conversar con tus archivos CSV o Excel. Sube tus datos y la aplicación se encarga del resto: limpieza automática, perfilado, uniones entre tablas y un **Análisis Exploratorio (EDA) generado por IA**. Haz preguntas complejas en lenguaje natural y recibe respuestas claras, tablas y gráficos dinámicos al instante.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank"><b>Prueba la App</b></a>
+  <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank"><b>Analista de Datos IA</b></a>
 </p>
 <p align="center">
   <a href="https://huggingface.co/spaces/Ricardouchub/analista-de-datos" target="_blank">
