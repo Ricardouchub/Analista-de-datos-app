@@ -41,7 +41,7 @@ Este proyecto es un potente **Analista de Datos IA** que permite conversar con a
 
 ---
 
-## Guía de la Interfaz
+## Interfaz
 
 - **Pestaña 1 – Cargar Datos**
   - Sube uno o varios archivos CSV/Excel.
