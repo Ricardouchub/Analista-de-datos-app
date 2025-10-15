@@ -63,12 +63,13 @@ Este proyecto es un **Analista de Datos IA** que permite conversar con archivos 
 ## Stack
 
 - **Interfaz**: Gradio
-- **Backend y Manipulación de Datos**: Python, Pandas
-- **Motor SQL (Opcional)**: DuckDB
+- **Manejo de Datos**: Pandas
+- **Motor SQL**: DuckDB
 - **Visualización**: Plotly
 - **IA (LLM)**: DeepSeek
 - **Agente**: PydanticAI 
-- **Embeddings y Búsqueda Vectorial**: Sentence-Transformers y FAISS
+- **Embeddings**: Sentence-Transformers
+- **Vector Search**: FAISS
 
 ---
 
